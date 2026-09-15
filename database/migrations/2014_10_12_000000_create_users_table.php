@@ -13,6 +13,7 @@ return new class extends Migration
             $table->string('name');
             $table->string('email')->nullable()->unique();
             $table->string('phone')->nullable()->unique();
+            $table->string('avatar')->nullable();
             $table->string('password')->nullable();
             $table->string('role')->default('customer'); // customer | seller | admin
             $table->string('provider')->nullable(); // google, null = local

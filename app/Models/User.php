@@ -19,6 +19,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'name',
         'email',
         'phone',
+        'avatar',        
         'password',
         'role',
         'provider',
@@ -103,4 +104,8 @@ class User extends Authenticatable implements MustVerifyEmail
 
         $this->notify(new \App\Notifications\VerifyEmailNotification());
     }
+    public function paymentMethods(): HasMany
+{
+    return $this->hasMany(PaymentMethod::class);
+}
 }
