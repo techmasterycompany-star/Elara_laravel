@@ -9,8 +9,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 
-class User extends Authenticatable
+class User extends Authenticatable implements MustVerifyEmail
 {
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
@@ -93,5 +94,13 @@ class User extends Authenticatable
     public function isCustomer(): bool
     {
         return $this->role === 'customer';
+    }
+     public function sendEmailVerificationNotification()
+    {
+        if (is_null($this->email)) {
+            return; // مفيش إيميل نبعت عليه — نوقف من غير error
+        }
+
+        $this->notify(new \App\Notifications\VerifyEmailNotification());
     }
 }
