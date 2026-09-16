@@ -9,6 +9,9 @@ use App\Http\Controllers\Api\User\ProfileController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\User\PaymentMethodController;
+use App\Http\Controllers\Api\Catalog\CategoryController;
+use App\Http\Controllers\Api\Catalog\ProductController;
+
 
 
 
@@ -58,4 +61,21 @@ Route::middleware('auth:sanctum')->prefix('payment-methods')->group(function () 
     Route::get('/', [PaymentMethodController::class, 'index']);
     Route::post('/', [PaymentMethodController::class, 'store']);
     Route::delete('/{paymentMethod}', [PaymentMethodController::class, 'destroy']);
+});
+Route::get('/categories', [CategoryController::class, 'index']);
+Route::middleware(['auth:sanctum', 'role:admin'])->prefix('categories')->group(function () {
+    Route::post('/', [CategoryController::class, 'store']);
+    Route::put('/{category}', [CategoryController::class, 'update']);
+    Route::delete('/{category}', [CategoryController::class, 'destroy']);
+});
+
+Route::get('/products/search', [ProductController::class, 'search']);
+Route::get('/products/filter', [ProductController::class, 'filter']);
+Route::get('/products', [ProductController::class, 'index']);
+Route::get('/products/{product}', [ProductController::class, 'show']);
+Route::middleware(['auth:sanctum', 'role:admin,seller'])->prefix('products')->group(function () {
+    Route::post('/', [ProductController::class, 'store']);
+    Route::put('/{product}', [ProductController::class, 'update']);
+    Route::patch('/{product}/status', [ProductController::class, 'updateStatus']);
+    Route::delete('/{product}', [ProductController::class, 'destroy']);
 });
