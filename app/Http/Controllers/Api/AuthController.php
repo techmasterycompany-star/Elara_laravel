@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Cart;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -46,6 +47,7 @@ class AuthController extends Controller
             'token' => $token,
         ], 201);
     }
+
     public function login(Request $request)
     {
         $request->validate([
@@ -68,6 +70,50 @@ class AuthController extends Controller
             ]);
         }
 
+        // ---- Guest Cart Merge (Issue #21) ----
+        $sessionId = $request->header('X-Session-Id');
+
+        if ($sessionId) {
+            DB::transaction(function () use ($user, $sessionId) {
+                $guestCart = Cart::where('session_id', $sessionId)->whereNull('user_id')->first();
+
+                if (! $guestCart) {
+                    return;
+                }
+
+                $userCart = $user->cart()->firstOrCreate([]);
+
+                foreach ($guestCart->items as $guestItem) {
+                    $product = $guestItem->product;
+
+                    if (! $product) {
+                        continue;
+                    }
+
+                    $existingItem = $userCart->items()->where('product_id', $guestItem->product_id)->first();
+
+                    $newQuantity = $existingItem
+                        ? $existingItem->quantity + $guestItem->quantity
+                        : $guestItem->quantity;
+
+                    // نحدد الكمية عند الـ stock المتاح عشان الـ merge ميبعتش quantity غير منطقية
+                    $newQuantity = min($newQuantity, $product->stock);
+
+                    if ($existingItem) {
+                        $existingItem->update(['quantity' => $newQuantity]);
+                    } else {
+                        $userCart->items()->create([
+                            'product_id'   => $guestItem->product_id,
+                            'quantity'     => $newQuantity,
+                            'price_at_add' => $guestItem->price_at_add,
+                        ]);
+                    }
+                }
+
+                $guestCart->delete();
+            });
+        }
+
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([
@@ -75,6 +121,7 @@ class AuthController extends Controller
             'token' => $token,
         ]);
     }
+
     public function logout(Request $request)
     {
         $request->user()->currentAccessToken()->delete();

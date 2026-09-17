@@ -33,7 +33,11 @@ class CartItem extends Model
     }
 
     public function lineTotal(): float
-    {
-        return (float) ($this->price_at_add * $this->quantity);
-    }
+{
+    $price = ($this->product && $this->product->status === 'active')
+        ? $this->product->currentPrice()
+        : (float) $this->price_at_add;
+
+    return (float) ($price * $this->quantity);
+}
 }

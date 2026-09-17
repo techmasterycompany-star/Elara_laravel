@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\ProductImage;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class ProductController extends Controller
@@ -21,7 +22,6 @@ class ProductController extends Controller
         return response()->json($products);
     }
 
-    // ---- #15 Search ----
     public function search(Request $request)
     {
         $validated = $request->validate([
@@ -47,7 +47,6 @@ class ProductController extends Controller
         return response()->json($products);
     }
 
-    // ---- #16 Filter ----
     public function filter(Request $request)
     {
         $validated = $request->validate([
@@ -240,6 +239,48 @@ class ProductController extends Controller
 
         return response()->json([
             'message' => 'Product deleted successfully.',
+        ]);
+    }
+
+    // ---- Product Images ----
+
+    public function storeImage(Request $request, Product $product)
+    {
+        $this->authorizeOwnership($request, $product);
+
+        $validated = $request->validate([
+            'images'   => ['required', 'array', 'max:5'],
+            'images.*' => ['image', 'max:2048'],
+        ]);
+
+        $startOrder = $product->images()->max('sort_order') + 1;
+
+        $images = collect($validated['images'])->map(function ($image, $index) use ($product, $startOrder) {
+            return $product->images()->create([
+                'path'       => $image->store('products', 'public'),
+                'sort_order' => $startOrder + $index,
+            ]);
+        });
+
+        return response()->json([
+            'message' => 'Images added successfully.',
+            'images'  => $images,
+        ], 201);
+    }
+
+    public function destroyImage(Request $request, Product $product, ProductImage $image)
+    {
+        $this->authorizeOwnership($request, $product);
+
+        if ($image->product_id !== $product->id) {
+            abort(404);
+        }
+
+        Storage::disk('public')->delete($image->path);
+        $image->delete();
+
+        return response()->json([
+            'message' => 'Image deleted successfully.',
         ]);
     }
 

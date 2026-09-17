@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\User\PaymentMethodController;
 use App\Http\Controllers\Api\Catalog\CategoryController;
 use App\Http\Controllers\Api\Catalog\ProductController;
+use App\Http\Controllers\Api\Cart\CartController;
+
 
 
 
@@ -73,9 +75,22 @@ Route::get('/products/search', [ProductController::class, 'search']);
 Route::get('/products/filter', [ProductController::class, 'filter']);
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{product}', [ProductController::class, 'show']);
+
+
 Route::middleware(['auth:sanctum', 'role:admin,seller'])->prefix('products')->group(function () {
     Route::post('/', [ProductController::class, 'store']);
     Route::put('/{product}', [ProductController::class, 'update']);
     Route::patch('/{product}/status', [ProductController::class, 'updateStatus']);
     Route::delete('/{product}', [ProductController::class, 'destroy']);
+    Route::post('/{product}/images', [ProductController::class, 'storeImage']);
+    Route::delete('/{product}/images/{image}', [ProductController::class, 'destroyImage']);
+});
+Route::prefix('cart')->group(function () {
+    Route::get('/', [CartController::class, 'index']);
+    Route::get('/summary', [CartController::class, 'summary']);
+    Route::post('/items', [CartController::class, 'store']);
+    Route::put('/items/{item}', [CartController::class, 'update']);
+    Route::delete('/items/{item}', [CartController::class, 'destroy']);
+    Route::post('/coupon', [CartController::class, 'applyCoupon']);
+    Route::delete('/coupon', [CartController::class, 'removeCoupon']);
 });

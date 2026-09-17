@@ -12,9 +12,14 @@ class Cart extends Model
     use HasFactory;
 
     protected $fillable = [
-        'user_id',
-        'session_id',
-    ];
+    'user_id',
+    'session_id',
+    'coupon_id',
+];
+public function coupon(): BelongsTo
+{
+    return $this->belongsTo(Coupon::class);
+}
 
     public function user(): BelongsTo
     {
@@ -29,9 +34,9 @@ class Cart extends Model
     // ---- Helpers ----
 
     public function subtotal(): float
-    {
-        return (float) $this->items->sum(fn ($item) => $item->price_at_add * $item->quantity);
-    }
+{
+    return (float) $this->items->sum(fn ($item) => $item->lineTotal());
+}
 
     public function isGuest(): bool
     {
