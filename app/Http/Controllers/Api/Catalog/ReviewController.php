@@ -11,6 +11,29 @@ use Illuminate\Http\Request;
 class ReviewController extends Controller
 {
    
+    public function index(Request $request, Product $product)
+    {
+        $validated = $request->validate([
+            'sort' => ['nullable', 'in:newest,highest,lowest'],
+        ]);
+
+        $query = $product->reviews()->with('user:id,name,avatar');
+
+        match ($validated['sort'] ?? 'newest') {
+            'highest' => $query->orderByDesc('rating')->orderByDesc('created_at'),
+            'lowest'  => $query->orderBy('rating')->orderByDesc('created_at'),
+            default   => $query->latest(),
+        };
+
+        $reviews = $query->paginate(10);
+
+        return response()->json([
+            'average_rating' => $product->averageRating(),
+            'total_reviews'  => $product->reviews()->count(),
+            'reviews'        => $reviews,
+        ]);
+    }
+
     public function store(Request $request, Product $product)
     {
         $validated = $request->validate([
@@ -44,6 +67,7 @@ class ReviewController extends Controller
         ], 201);
     }
 
+  
     public function update(Request $request, Review $review)
     {
         $this->authorizeOwnership($request, $review);
@@ -61,7 +85,7 @@ class ReviewController extends Controller
         ]);
     }
 
-    
+   
     public function destroy(Request $request, Review $review)
     {
         $this->authorizeOwnership($request, $review);
@@ -73,7 +97,7 @@ class ReviewController extends Controller
         ]);
     }
 
-   
+    
 
     private function isVerifiedPurchaser(int $userId, int $productId): bool
     {

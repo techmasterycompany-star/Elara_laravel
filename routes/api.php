@@ -11,9 +11,8 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\User\PaymentMethodController;
 use App\Http\Controllers\Api\Catalog\CategoryController;
 use App\Http\Controllers\Api\Catalog\ProductController;
-use App\Http\Controllers\Api\Catalog\ReviewController;
 use App\Http\Controllers\Api\User\WishlistController;
-
+use App\Http\Controllers\Api\Catalog\ReviewController;
 
 
 
@@ -83,6 +82,7 @@ Route::middleware(['auth:sanctum', 'role:admin,seller'])->prefix('products')->gr
     Route::delete('/{product}', [ProductController::class, 'destroy']);
 });
 
+
 Route::middleware('auth:sanctum')->prefix('wishlist')->group(function () {
     Route::get('/', [WishlistController::class, 'index']);
     Route::post('/', [WishlistController::class, 'store']);
@@ -90,9 +90,10 @@ Route::middleware('auth:sanctum')->prefix('wishlist')->group(function () {
 });
 
 
+Route::get('/products/{product}/reviews', [ReviewController::class, 'index']);
+
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/products/{product}/reviews', [ReviewController::class, 'store']);
     Route::put('/reviews/{review}', [ReviewController::class, 'update']);
     Route::delete('/reviews/{review}', [ReviewController::class, 'destroy']);
 });
-
