@@ -11,7 +11,9 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\User\PaymentMethodController;
 use App\Http\Controllers\Api\Catalog\CategoryController;
 use App\Http\Controllers\Api\Catalog\ProductController;
+use App\Http\Controllers\Api\Catalog\ReviewController;
 use App\Http\Controllers\Api\User\WishlistController;
+
 
 
 
@@ -86,3 +88,11 @@ Route::middleware('auth:sanctum')->prefix('wishlist')->group(function () {
     Route::post('/', [WishlistController::class, 'store']);
     Route::delete('/{product}', [WishlistController::class, 'destroy']);
 });
+
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/products/{product}/reviews', [ReviewController::class, 'store']);
+    Route::put('/reviews/{review}', [ReviewController::class, 'update']);
+    Route::delete('/reviews/{review}', [ReviewController::class, 'destroy']);
+});
+
