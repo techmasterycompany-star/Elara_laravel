@@ -15,11 +15,17 @@ use Illuminate\Validation\Rule;
 use App\Mail\OrderConfirmationMail;
 use App\Mail\OrderStatusChangedMail;
 use Illuminate\Support\Facades\Mail;
+use App\Models\Payment;
+use App\Models\User;
+use App\Http\Controllers\Concerns\AuthorizesOrderOwnership;
+use App\Services\PaymentService;
+
+
 
 class OrderController extends Controller
 {
-    use ResolvesCart;
-
+    use ResolvesCart, AuthorizesOrderOwnership;
+ public function __construct(private PaymentService $paymentService) {}
     private const DISCOUNT_TIERS = [
         ['min_subtotal' => 2000, 'discount' => 250],
         ['min_subtotal' => 1000, 'discount' => 100],
@@ -103,136 +109,250 @@ class OrderController extends Controller
         }
 
         $order = DB::transaction(function () use ($user, $cart, $shipping, $validated) {
-            $lineData = [];
-            $subtotal = 0;
+    $lineData = [];
+    $subtotal = 0;
 
-            foreach ($cart->items as $item) {
-                $product = Product::where('id', $item->product_id)->lockForUpdate()->first();
+    foreach ($cart->items as $item) {
+        $product = Product::where('id', $item->product_id)->lockForUpdate()->first();
 
-                if (! $product || $product->status !== 'active' || $product->stock < $item->quantity) {
-                    abort(422, "Product #{$item->product_id} is no longer available in the requested quantity.");
-                }
+        if (! $product || $product->status !== 'active' || $product->stock < $item->quantity) {
+            abort(422, "Product #{$item->product_id} is no longer available in the requested quantity.");
+        }
 
-                $price = $product->currentPrice();
+        $price = $product->currentPrice();
 
-                $lineData[] = [
-                    'product'  => $product,
-                    'quantity' => $item->quantity,
-                    'price'    => $price,
-                ];
+        $lineData[] = [
+            'product'  => $product,
+            'quantity' => $item->quantity,
+            'price'    => $price,
+        ];
 
-                $subtotal += $price * $item->quantity;
-            }
+        $subtotal += $price * $item->quantity;
+    }
 
-            $tierDiscount = collect(self::DISCOUNT_TIERS)
-                ->first(fn ($tier) => $subtotal >= $tier['min_subtotal'])['discount'] ?? 0;
+    $tierDiscount = collect(self::DISCOUNT_TIERS)
+        ->first(fn ($tier) => $subtotal >= $tier['min_subtotal'])['discount'] ?? 0;
 
-            $couponDiscount = 0;
-            $coupon = $cart->coupon;
+    $couponDiscount = 0;
+    $coupon = $cart->coupon;
 
-            if ($coupon && $coupon->isValid()) {
-                $couponDiscount = $coupon->calculateDiscount((float) $subtotal);
-            } else {
-                $coupon = null;
-            }
+    if ($coupon && $coupon->isValid()) {
+        $couponDiscount = $coupon->calculateDiscount((float) $subtotal);
+    } else {
+        $coupon = null;
+    }
 
-            if ($couponDiscount > 0 && $couponDiscount >= $tierDiscount) {
-                $discount = $couponDiscount;
-            } else {
-                $discount = $tierDiscount;
-                $coupon   = null;
-            }
+    if ($couponDiscount > 0 && $couponDiscount >= $tierDiscount) {
+        $discount = $couponDiscount;
+    } else {
+        $discount = $tierDiscount;
+        $coupon   = null;
+    }
 
-            $shippingFee = self::SHIPPING_FEE;
-            $total       = $subtotal - $discount + $shippingFee;
+    $shippingFee = self::SHIPPING_FEE;
+    $total       = $subtotal - $discount + $shippingFee;
 
-            $order = Order::create([
-                'order_number'   => 'TEMP-' . Str::uuid(),
-                'user_id'        => $user?->id,
-                'coupon_id'      => $coupon?->id,
-                ...$shipping,
-                'guest_email'    => $user ? null : $validated['guest_email'],
-                'status'         => 'pending_payment',
-                'subtotal'       => round($subtotal, 2),
-                'discount'       => round($discount, 2),
-                'shipping_fee'   => $shippingFee,
-                'total'          => round($total, 2),
-                'payment_method' => $validated['payment_method'],
-            ]);
+    // ⬇️ جديد: فحص رصيد المحفظة - لازم يحصل قبل أي Order::create() أو أي كتابة تانية
+    $walletUser = null;
 
-            $order->update(['order_number' => Order::generateOrderNumber($order->id)]);
+    if ($validated['payment_method'] === 'wallet') {
+        if (! $user) {
+            abort(422, 'Wallet payment requires a logged-in account.');
+        }
 
-            foreach ($lineData as $line) {
-                $product = $line['product'];
+        // إعادة جلب اليوزر مع lockForUpdate جوه نفس الـ transaction - مش نفس الـ $user اللي جاي من الـ request
+        $walletUser = User::where('id', $user->id)->lockForUpdate()->first();
 
-                $product->decrement('stock', $line['quantity']);
+        if ($walletUser->wallet_balance < $total) {
+            abort(422, 'Insufficient wallet balance. Please choose another payment method or top up your wallet.');
+        }
+    }
+    // ⬆️
 
-                $order->items()->create([
-                    'product_id'   => $product->id,
-                    'seller_id'    => $product->seller_id,
-                    'product_name' => $product->name,
-                    'product_sku'  => $product->sku,
-                    'quantity'     => $line['quantity'],
-                    'price'        => $line['price'],
-                    'status'       => 'pending',
-                ]);
-            }
+    $order = Order::create([
+        'order_number'   => 'TEMP-' . Str::uuid(),
+        'user_id'        => $user?->id,
+        'coupon_id'      => $coupon?->id,
+        ...$shipping,
+        'guest_email'    => $user ? null : $validated['guest_email'],
+        'status'         => $validated['payment_method'] === 'wallet' ? 'paid' : 'pending_payment', // ⬅️ اتعدلت
+        'subtotal'       => round($subtotal, 2),
+        'discount'       => round($discount, 2),
+        'shipping_fee'   => $shippingFee,
+        'total'          => round($total, 2),
+        'payment_method' => $validated['payment_method'],
+    ]);
 
-            if ($coupon) {
-                $coupon->increment('used_count');
-            }
+    $order->update(['order_number' => Order::generateOrderNumber($order->id)]);
 
-            $cart->items()->delete();
-            $cart->update(['coupon_id' => null]);
+    foreach ($lineData as $line) {
+        $product = $line['product'];
 
-            return $order;
-        });
+        $product->decrement('stock', $line['quantity']);
 
-        return response()->json([
-            'message' => 'Order placed successfully.',
-            'order'   => $order->load('items'),
-        ], 201);
+        $order->items()->create([
+            'product_id'   => $product->id,
+            'seller_id'    => $product->seller_id,
+            'product_name' => $product->name,
+            'product_sku'  => $product->sku,
+            'quantity'     => $line['quantity'],
+            'price'        => $line['price'],
+            'status'       => 'pending',
+        ]);
+    }
+
+    if ($coupon) {
+        $coupon->increment('used_count');
+    }
+
+    // ⬇️ جديد: خصم الرصيد + تسجيل الـ Payment - بس لو wallet
+    if ($validated['payment_method'] === 'wallet') {
+        $walletUser->decrement('wallet_balance', $total);
+
+        Payment::create([
+            'order_id'       => $order->id,
+            'gateway'        => 'wallet',
+            'gateway_transaction_id' => 'wallet-' . $order->id . '-' . now()->timestamp,   
+            'amount'         => $total,
+            'status'         => 'paid',
+        ]);
+    }
+    // ⬆️
+
+    $cart->items()->delete();
+    $cart->update(['coupon_id' => null]);
+
+    return $order;
+});
+$recipientEmail = $user?->email ?? $order->guest_email;
+
+if ($recipientEmail) {
+    Mail::to($recipientEmail)->send(new OrderConfirmationMail($order));
+}
+
+return response()->json([
+    'message' => 'Order placed successfully.',
+    'order'   => $order->load('items'),
+], 201);
     }
 
     // ---- #25 Order Status & Tracking ----
 
     public function show(Request $request, Order $order)
-    {
-        $this->authorizeCustomer($request, $order);
+{
+    $this->authorizeOrderOwnership($request, $order);   
 
-        $order->load('items');
+    $order->load('items');
 
-        return response()->json([
-            'order'          => $order,
-            'overall_status' => $order->computedStatus(),
-        ]);
-    }
+    return response()->json([
+        'order'          => $order,
+        'overall_status' => $order->computedStatus(),
+    ]);
+}
+public function index(Request $request)
+{
+    $orders = $request->user()
+        ->orders()
+        ->with('items')
+        ->latest()
+        ->paginate(10);
+
+    $orders->getCollection()->transform(function ($order) {
+        $order->overall_status = $order->computedStatus();
+        return $order;
+    });
+
+    return response()->json($orders);
+}
 
     public function cancel(Request $request, Order $order)
-    {
-        $this->authorizeCustomer($request, $order);
+{
+    $this->authorizeOrderOwnership($request, $order);
 
-        $order->load('items');
+    $order->load('items');
 
-        if ($order->items->contains(fn ($item) => $item->status !== 'pending')) {
-            return response()->json([
-                'message' => 'This order can no longer be cancelled.',
-            ], 422);
+    if ($order->items->contains(fn ($item) => $item->status !== 'pending')) {
+        return response()->json([
+            'message' => 'This order can no longer be cancelled.',
+        ], 422);
+    }
+
+    $refundMessage = null;
+
+    // لو الأوردر كان مدفوع فعلًا، نحاول نرجع الفلوس الأول قبل ما نلغي أي حاجة
+    if ($order->status === 'paid') {
+        $refundResult = $this->paymentService->refund($order);
+
+        if (! $refundResult->success) {
+            // ماوقفناش الإلغاء - بس بنبلّغ إن الرد المالي محتاج تدخل يدوي (زي حالة COD)
+            $refundMessage = $refundResult->message;
+        }
+    }
+
+    DB::transaction(function () use ($order) {
+        foreach ($order->items as $item) {
+            Product::where('id', $item->product_id)->increment('stock', $item->quantity);
+            $item->update(['status' => 'cancelled']);
         }
 
-        DB::transaction(function () use ($order) {
-            foreach ($order->items as $item) {
-                Product::where('id', $item->product_id)->increment('stock', $item->quantity);
-                $item->update(['status' => 'cancelled']);
+        // رجوع استخدام الكوبون - لو مبقاش أقل من صفر
+        if ($order->coupon_id) {
+            $order->coupon()->decrement('used_count');
+        }
+
+        $order->update(['status' => 'cancelled']);
+    });
+
+    return response()->json([
+        'message'        => 'Order cancelled successfully.',
+        'refund_message' => $refundMessage, // null لو الرد نجح تلقائيًا أو الأوردر مكانش مدفوع أصلًا
+    ]);
+}
+public function reorder(Request $request, Order $order)
+{
+    $this->authorizeOrderOwnership($request, $order);
+
+    $order->load('items');
+
+    $cart = $this->resolveCart($request, createIfMissing: true);
+
+    $skipped = collect();
+
+    DB::transaction(function () use ($order, $cart, &$skipped) {
+        foreach ($order->items as $orderItem) {
+            $product = Product::where('id', $orderItem->product_id)->first();
+
+            if (! $product || $product->status !== 'active') {
+                $skipped->push(['product_id' => $orderItem->product_id, 'reason' => 'unavailable']);
+                continue;
             }
 
-            $order->update(['status' => 'cancelled']);
-        });
+            $cartItem    = $cart->items()->where('product_id', $product->id)->first();
+            $newQuantity = $cartItem ? $cartItem->quantity + $orderItem->quantity : $orderItem->quantity;
 
-        return response()->json([
-            'message' => 'Order cancelled successfully.',
-        ]);
-    }
+            if ($newQuantity > $product->stock) {
+                $skipped->push(['product_id' => $product->id, 'reason' => 'out_of_stock']);
+                continue;
+            }
+
+            if ($cartItem) {
+                $cartItem->update(['quantity' => $newQuantity]);
+            } else {
+                $cart->items()->create([
+                    'product_id'   => $product->id,
+                    'quantity'     => $orderItem->quantity,
+                    'price_at_add' => $product->currentPrice(),
+                ]);
+            }
+        }
+    });
+
+    return response()->json([
+        'message' => 'Items added to your cart from this order.',
+        'cart'    => $cart->load('items.product'),
+        'skipped' => $skipped->values(),
+    ]);
+}
 
     public function updateItemStatus(Request $request, OrderItem $item)
     {
@@ -260,6 +380,27 @@ class OrderController extends Controller
         }
 
         $item->update(['status' => $validated['status']]);
+        
+$order = $item->order()->with('items')->first();
+$previousStatus = $order->computedStatus();
+
+$item->update(['status' => $validated['status']]);
+
+$order->load('items'); // نعيد تحميل الـ items عشان computedStatus() ياخد القيم الجديدة بعد التحديث
+$newStatus = $order->computedStatus();
+
+if ($newStatus !== $previousStatus) {
+    $recipientEmail = $order->user?->email ?? $order->guest_email;
+
+    if ($recipientEmail) {
+        Mail::to($recipientEmail)->send(new OrderStatusChangedMail($order, $newStatus));
+    }
+}
+
+return response()->json([
+    'message' => 'Order item status updated.',
+    'item'    => $item->fresh(),
+]);
 
         return response()->json([
             'message' => 'Order item status updated.',
@@ -267,12 +408,5 @@ class OrderController extends Controller
         ]);
     }
 
-    private function authorizeCustomer(Request $request, Order $order): void
-    {
-        $user = $request->user();
-
-        if (! $user || $order->user_id !== $user->id) {
-            abort(403, 'You do not have permission to access this order.');
-        }
-    }
+    
 }

@@ -99,10 +99,13 @@ Route::prefix('cart')->group(function () {
     Route::post('/coupon', [CartController::class, 'applyCoupon']);
     Route::delete('/coupon', [CartController::class, 'removeCoupon']);
 });
+
 Route::post('/orders', [OrderController::class, 'store']);
 Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/orders', [OrderController::class, 'index']);
     Route::get('/orders/{order}', [OrderController::class, 'show']);
     Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
+    Route::post('/orders/{order}/reorder', [OrderController::class, 'reorder']);
 });
 
 Route::middleware(['auth:sanctum', 'role:admin,seller'])->group(function () {
@@ -114,3 +117,4 @@ Route::post('/webhooks/stripe', [WebhookController::class, 'stripe']);
 Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/wallet')->group(function () {
     Route::post('/{user}/top-up', [WalletController::class, 'topUp']);
 });
+
