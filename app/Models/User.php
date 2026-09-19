@@ -16,16 +16,18 @@ class User extends Authenticatable implements MustVerifyEmail
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
     protected $fillable = [
-        'name',
-        'email',
-        'phone',
-        'avatar',        
-        'password',
-        'role',
-        'provider',
-        'provider_id',
-        'is_active',
-    ];
+    'name',
+    'email',
+    'phone',
+    'avatar',
+    'wallet_balance',   
+    'password',
+    'role',
+    'provider',
+    'provider_id',
+    'is_active',
+];
+
 
     protected $hidden = [
         'password',
@@ -33,11 +35,11 @@ class User extends Authenticatable implements MustVerifyEmail
     ];
 
     protected $casts = [
-        'email_verified_at' => 'datetime',
-        'is_active' => 'boolean',
-        'password' => 'hashed',
-    ];
-
+    'email_verified_at' => 'datetime',
+    'is_active'          => 'boolean',
+    'password'           => 'hashed',
+    'wallet_balance'     => 'decimal:2',   
+];
     // ---- Relationships ----
 
     public function addresses(): HasMany

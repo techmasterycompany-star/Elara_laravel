@@ -13,6 +13,11 @@ use App\Http\Controllers\Api\Catalog\CategoryController;
 use App\Http\Controllers\Api\Catalog\ProductController;
 use App\Http\Controllers\Api\Cart\CartController;
 use App\Http\Controllers\Api\Order\OrderController;
+use App\Http\Controllers\Api\Payment\PaymentController;
+use App\Http\Controllers\Api\Payment\WebhookController;
+use App\Http\Controllers\Api\Admin\WalletController;
+
+
 
 
 
@@ -102,4 +107,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
 Route::middleware(['auth:sanctum', 'role:admin,seller'])->group(function () {
     Route::patch('/order-items/{item}/status', [OrderController::class, 'updateItemStatus']);
+});
+Route::post('/orders/{order}/pay', [PaymentController::class, 'pay']);
+Route::middleware(['auth:sanctum', 'role:admin'])->post('/orders/{order}/confirm-cash-payment', [PaymentController::class, 'confirmCashPayment']);
+Route::post('/webhooks/stripe', [WebhookController::class, 'stripe']);
+Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/wallet')->group(function () {
+    Route::post('/{user}/top-up', [WalletController::class, 'topUp']);
 });
