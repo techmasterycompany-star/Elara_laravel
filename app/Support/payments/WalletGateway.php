@@ -40,7 +40,7 @@ class WalletGateway implements PaymentGateway
                 );
             }
 
-            $user->decrement('wallet_balance', $order->total);
+            $user->decrement('wallet_balance', (float) $order->total);
 
             return new PaymentResult(
                 success: true,

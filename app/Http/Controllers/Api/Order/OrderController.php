@@ -251,13 +251,14 @@ return response()->json([
 }
 public function index(Request $request)
 {
+    /** @var \Illuminate\Pagination\LengthAwarePaginator $orders */
     $orders = $request->user()
         ->orders()
         ->with('items')
         ->latest()
         ->paginate(10);
 
-    $orders->getCollection()->transform(function ($order) {
+    $orders->through(function ($order) {
         $order->overall_status = $order->computedStatus();
         return $order;
     });
