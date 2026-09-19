@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\Catalog\CategoryController;
 use App\Http\Controllers\Api\Catalog\ProductController;
 use App\Http\Controllers\Api\User\WishlistController;
 use App\Http\Controllers\Api\Catalog\ReviewController;
+use App\Http\Controllers\Api\Admin\AdminUserController;
 
 
 
@@ -89,11 +90,20 @@ Route::middleware('auth:sanctum')->prefix('wishlist')->group(function () {
     Route::delete('/{product}', [WishlistController::class, 'destroy']);
 });
 
-
 Route::get('/products/{product}/reviews', [ReviewController::class, 'index']);
+
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/products/{product}/reviews', [ReviewController::class, 'store']);
     Route::put('/reviews/{review}', [ReviewController::class, 'update']);
     Route::delete('/reviews/{review}', [ReviewController::class, 'destroy']);
+});
+
+
+Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/users')->group(function () {
+    Route::get('/', [AdminUserController::class, 'index']);
+    Route::get('/{user}', [AdminUserController::class, 'show']);
+    Route::patch('/{user}/suspend', [AdminUserController::class, 'suspend']);
+    Route::patch('/{user}/activate', [AdminUserController::class, 'activate']);
+    Route::delete('/{user}', [AdminUserController::class, 'destroy']);
 });
