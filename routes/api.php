@@ -12,7 +12,7 @@ use App\Http\Controllers\Api\User\PaymentMethodController;
 use App\Http\Controllers\Api\Catalog\CategoryController;
 use App\Http\Controllers\Api\Catalog\ProductController;
 use App\Http\Controllers\Api\Cart\CartController;
-
+use App\Http\Controllers\Api\Order\OrderController;
 
 
 
@@ -93,4 +93,13 @@ Route::prefix('cart')->group(function () {
     Route::delete('/items/{item}', [CartController::class, 'destroy']);
     Route::post('/coupon', [CartController::class, 'applyCoupon']);
     Route::delete('/coupon', [CartController::class, 'removeCoupon']);
+});
+Route::post('/orders', [OrderController::class, 'store']);
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/orders/{order}', [OrderController::class, 'show']);
+    Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
+});
+
+Route::middleware(['auth:sanctum', 'role:admin,seller'])->group(function () {
+    Route::patch('/order-items/{item}/status', [OrderController::class, 'updateItemStatus']);
 });

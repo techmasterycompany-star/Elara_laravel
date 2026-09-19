@@ -70,8 +70,28 @@ class Order extends Model
         return $this->payment()->where('status', 'paid')->exists();
     }
 
-    public static function generateOrderNumber(): string
-    {
-        return 'GT-'.now()->format('Y').'-'.str_pad((string) (static::max('id') + 1), 6, '0', STR_PAD_LEFT);
+    public static function generateOrderNumber(int $id): string
+{
+    return 'GT-'.now()->format('Y').'-'.str_pad((string) $id, 6, '0', STR_PAD_LEFT);
+}
+public function computedStatus(): string
+{
+    $statuses = $this->items->pluck('status');
+
+    if ($statuses->isEmpty()) {
+        return $this->status;
     }
+
+    $activeStatuses = $statuses->filter(fn ($s) => $s !== 'cancelled');
+
+    if ($activeStatuses->isEmpty()) {
+        return 'cancelled'; // كل الـ items اتلغت
+    }
+
+    $rank = ['pending' => 0, 'processing' => 1, 'shipped' => 2, 'delivered' => 3];
+
+    $lowestRank = $activeStatuses->min(fn ($s) => $rank[$s] ?? 99);
+
+    return array_search($lowestRank, $rank, true);
+}
 }

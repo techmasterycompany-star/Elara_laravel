@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Cart;
 
+
 use App\Http\Controllers\Controller;
 use App\Models\Cart;
 use App\Models\CartItem;
@@ -9,9 +10,12 @@ use App\Models\Coupon;
 use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Http\Controllers\Api\Cart\Concerns\ResolvesCart;
+
 
 class CartController extends Controller
 {
+     use ResolvesCart;
     private const DISCOUNT_TIERS = [
         ['min_subtotal' => 2000, 'discount' => 250],
         ['min_subtotal' => 1000, 'discount' => 100],
@@ -279,28 +283,6 @@ class CartController extends Controller
             'message' => 'Item removed from cart.',
         ]);
     }
-
-    private function resolveCart(Request $request, bool $createIfMissing): ?Cart
-    {
-        $user = $request->user();
-
-        if ($user) {
-            return $createIfMissing
-                ? $user->cart()->firstOrCreate([])
-                : $user->cart()->first();
-        }
-
-        $sessionId = $request->header('X-Session-Id');
-
-        if (! $sessionId) {
-            abort(422, 'A session id is required for guest carts.');
-        }
-
-        return $createIfMissing
-            ? Cart::firstOrCreate(['session_id' => $sessionId], ['user_id' => null])
-            : Cart::where('session_id', $sessionId)->first();
-    }
-
     private function authorizeOwnership(Request $request, CartItem $item): void
     {
         $cart = $item->cart;
