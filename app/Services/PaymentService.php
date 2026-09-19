@@ -86,4 +86,24 @@ private function resolveGateway(string $method): PaymentGateway
         'message' => 'Cash payment confirmed.',
     ]);
 }
+public function refund(Order $order): PaymentResult
+{
+    $payment = Payment::where('order_id', $order->id)
+        ->where('status', 'paid')
+        ->first();
+
+    if (! $payment) {
+        return new PaymentResult(
+            success: false,
+            status: 'failed',
+            transactionId: null,
+            redirectUrl: null,
+            message: 'No paid payment found to refund for this order.',
+        );
+    }
+
+    $gateway = $this->resolveGateway($payment->gateway);
+
+    return $gateway->refund($payment);
+}
 }

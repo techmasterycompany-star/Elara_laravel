@@ -21,14 +21,16 @@ class CashOnDeliveryGateway implements PaymentGateway
         );
     }
 
-    public function refund(Payment $payment): PaymentResult
-    {
-        return new PaymentResult(
-            success: false,
-            status: 'failed',
-            message: 'Cash on delivery payments must be refunded manually.',
-        );
-    }
+  public function refund(Payment $payment): PaymentResult
+{
+    return new PaymentResult(
+        success: false,
+        status: 'failed',
+        transactionId: $payment->gateway_transaction_id,   
+        redirectUrl: null,
+        message: 'Cash on Delivery payments must be refunded manually by an admin — the money was collected in cash, not through the system.',
+    );
+}
 
     public function handleWebhook(Request $request): void
     {

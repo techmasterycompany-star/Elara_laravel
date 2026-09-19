@@ -59,22 +59,22 @@ class WalletGateway implements PaymentGateway
      * لأننا احنا اللي متحكمين في الرصيد بالكامل، مش محتاجين نكلم أي بوابة خارجية.
      */
     public function refund(Payment $payment): PaymentResult
-    {
-        $order = $payment->order;
+{
+    $order = $payment->order;
 
-        DB::transaction(function () use ($order, $payment) {
-            $order->user()->increment('wallet_balance', $payment->amount);
-            $payment->update(['status' => 'refunded']);
-        });
+    DB::transaction(function () use ($order, $payment) {
+        $order->user()->increment('wallet_balance', $payment->amount);
+        $payment->update(['status' => 'refunded']);
+    });
 
-        return new PaymentResult(
-            success: true,
-            status: 'refunded',
-            transactionId: $payment->transaction_id,
-            redirectUrl: null,
-            message: null,
-        );
-    }
+    return new PaymentResult(
+        success: true,
+        status: 'refunded',
+        transactionId: $payment->gateway_transaction_id,   
+        redirectUrl: null,
+        message: null,
+    );
+}
 
     /**
      * محفظتنا الداخلية - مفيش أي جهة خارجية تبعتلنا webhook خالص.

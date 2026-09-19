@@ -62,16 +62,34 @@ class StripeGateway implements PaymentGateway
      * لسه مش هنطبقها فعليًا دلوقتي - المفروض تستخدم Stripe\Refund لعمل استرجاع.
      * حطيناها هنا بس عشان نطبّق الـ interface بالكامل، وهنبنيها لما نوصل لنظام الـ refunds.
      */
-    public function refund(Payment $payment): PaymentResult
-    {
+   // app/Support/Payments/StripeGateway.php — جوه refund()
+
+public function refund(Payment $payment): PaymentResult
+{
+    try {
+        $refund = $this->client->refunds->create([
+            'payment_intent' => $payment->gateway_transaction_id,  
+        ]);
+    } catch (\Stripe\Exception\ApiErrorException $e) {
         return new PaymentResult(
             success: false,
             status: 'failed',
-            transactionId: $payment->transaction_id,
+            transactionId: $payment->gateway_transaction_id,        
             redirectUrl: null,
-            message: 'Refunds are not implemented yet.',
+            message: $e->getMessage(),
         );
     }
+
+    $payment->update(['status' => 'refunded']);
+
+    return new PaymentResult(
+        success: true,
+        status: 'refunded',
+        transactionId: $refund->id,
+        redirectUrl: null,
+        message: null,
+    );
+}
 
     /**
      * Stripe بيبعتلنا event لما حاجة تحصل (نجاح دفع، فشل، الخ).
@@ -120,7 +138,7 @@ class StripeGateway implements PaymentGateway
                 Payment::updateOrCreate(
                     ['order_id' => $order->id, 'gateway' => 'stripe'],
                     [
-                        'transaction_id' => $session->payment_intent ?? $session->id,
+                        'gateway_transaction_id' => $session->payment_intent ?? $session->id,   
                         'amount'         => $order->total,
                         'status'         => 'paid',
                     ]
