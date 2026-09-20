@@ -16,6 +16,8 @@ use App\Http\Controllers\Api\Order\OrderController;
 use App\Http\Controllers\Api\Payment\PaymentController;
 use App\Http\Controllers\Api\Payment\WebhookController;
 use App\Http\Controllers\Api\Admin\WalletController;
+use App\Http\Controllers\Api\User\WishlistController;
+use App\Http\Controllers\Api\Catalog\ReviewController;
 
 
 
@@ -89,6 +91,19 @@ Route::middleware(['auth:sanctum', 'role:admin,seller'])->prefix('products')->gr
     Route::delete('/{product}', [ProductController::class, 'destroy']);
     Route::post('/{product}/images', [ProductController::class, 'storeImage']);
     Route::delete('/{product}/images/{image}', [ProductController::class, 'destroyImage']);
+});
+Route::middleware('auth:sanctum')->prefix('wishlist')->group(function () {
+    Route::get('/', [WishlistController::class, 'index']);
+    Route::post('/', [WishlistController::class, 'store']);
+    Route::delete('/{product}', [WishlistController::class, 'destroy']);
+});
+
+Route::get('/products/{product}/reviews', [ReviewController::class, 'index']);
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/products/{product}/reviews', [ReviewController::class, 'store']);
+    Route::put('/reviews/{review}', [ReviewController::class, 'update']);
+    Route::delete('/reviews/{review}', [ReviewController::class, 'destroy']);
 });
 Route::prefix('cart')->group(function () {
     Route::get('/', [CartController::class, 'index']);
