@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\Payment\WebhookController;
 use App\Http\Controllers\Api\Admin\WalletController;
 use App\Http\Controllers\Api\User\WishlistController;
 use App\Http\Controllers\Api\Catalog\ReviewController;
+use App\Http\Controllers\Api\Admin\AdminUserController;
 
 
 
@@ -134,5 +135,12 @@ Route::post('/webhooks/stripe', [WebhookController::class, 'stripe']);
 
 Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/wallet')->group(function () {
     Route::post('/{user}/top-up', [WalletController::class, 'topUp']);
+});
+Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/users')->group(function () {
+    Route::get('/', [AdminUserController::class, 'index']);
+    Route::get('/{user}', [AdminUserController::class, 'show']);
+    Route::patch('/{user}/suspend', [AdminUserController::class, 'suspend']);
+    Route::patch('/{user}/activate', [AdminUserController::class, 'activate']);
+    Route::delete('/{user}', [AdminUserController::class, 'destroy']);
 });
 
