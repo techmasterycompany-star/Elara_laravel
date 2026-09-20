@@ -101,19 +101,22 @@ Route::prefix('cart')->group(function () {
 });
 
 Route::post('/orders', [OrderController::class, 'store']);
+Route::get('/orders/{order}', [OrderController::class, 'show']);
+Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/orders', [OrderController::class, 'index']);
-    Route::get('/orders/{order}', [OrderController::class, 'show']);
-    Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
+
     Route::post('/orders/{order}/reorder', [OrderController::class, 'reorder']);
 });
 
 Route::middleware(['auth:sanctum', 'role:admin,seller'])->group(function () {
     Route::patch('/order-items/{item}/status', [OrderController::class, 'updateItemStatus']);
 });
+
 Route::post('/orders/{order}/pay', [PaymentController::class, 'pay']);
 Route::middleware(['auth:sanctum', 'role:admin'])->post('/orders/{order}/confirm-cash-payment', [PaymentController::class, 'confirmCashPayment']);
 Route::post('/webhooks/stripe', [WebhookController::class, 'stripe']);
+
 Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/wallet')->group(function () {
     Route::post('/{user}/top-up', [WalletController::class, 'topUp']);
 });

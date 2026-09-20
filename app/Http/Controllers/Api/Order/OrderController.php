@@ -152,22 +152,18 @@ class OrderController extends Controller
     $shippingFee = self::SHIPPING_FEE;
     $total       = $subtotal - $discount + $shippingFee;
 
-    // ⬇️ جديد: فحص رصيد المحفظة - لازم يحصل قبل أي Order::create() أو أي كتابة تانية
-    $walletUser = null;
-
+    // فحص سريع بس (من غير lock ومن غير خصم) - يمنع إنشاء أوردر وحجز stock
+    // لعميل رصيده مش كافي أصلاً. الخصم الفعلي والتحقق النهائي (بـ lockForUpdate)
+    // بيحصلوا لاحقًا جوّه WalletGateway::charge() عن طريق PaymentService.
     if ($validated['payment_method'] === 'wallet') {
         if (! $user) {
             abort(422, 'Wallet payment requires a logged-in account.');
         }
 
-        // إعادة جلب اليوزر مع lockForUpdate جوه نفس الـ transaction - مش نفس الـ $user اللي جاي من الـ request
-        $walletUser = User::where('id', $user->id)->lockForUpdate()->first();
-
-        if ($walletUser->wallet_balance < $total) {
+        if ($user->wallet_balance < $total) {
             abort(422, 'Insufficient wallet balance. Please choose another payment method or top up your wallet.');
         }
     }
-    // ⬆️
 
     $order = Order::create([
         'order_number'   => 'TEMP-' . Str::uuid(),
@@ -175,7 +171,7 @@ class OrderController extends Controller
         'coupon_id'      => $coupon?->id,
         ...$shipping,
         'guest_email'    => $user ? null : $validated['guest_email'],
-        'status'         => $validated['payment_method'] === 'wallet' ? 'paid' : 'pending_payment', // ⬅️ اتعدلت
+        'status'         => 'pending_payment',
         'subtotal'       => round($subtotal, 2),
         'discount'       => round($discount, 2),
         'shipping_fee'   => $shippingFee,
@@ -205,25 +201,13 @@ class OrderController extends Controller
         $coupon->increment('used_count');
     }
 
-    // ⬇️ جديد: خصم الرصيد + تسجيل الـ Payment - بس لو wallet
-    if ($validated['payment_method'] === 'wallet') {
-        $walletUser->decrement('wallet_balance', $total);
-
-        Payment::create([
-            'order_id'       => $order->id,
-            'gateway'        => 'wallet',
-            'gateway_transaction_id' => 'wallet-' . $order->id . '-' . now()->timestamp,   
-            'amount'         => $total,
-            'status'         => 'paid',
-        ]);
-    }
-    // ⬆️
-
     $cart->items()->delete();
     $cart->update(['coupon_id' => null]);
 
     return $order;
 });
+$paymentResult = $this->paymentService->pay($order);
+
 $recipientEmail = $user?->email ?? $order->guest_email;
 
 if ($recipientEmail) {
@@ -231,8 +215,10 @@ if ($recipientEmail) {
 }
 
 return response()->json([
-    'message' => 'Order placed successfully.',
-    'order'   => $order->load('items'),
+    'message'        => 'Order placed successfully.',
+    'order'          => $order->load('items'),
+    'payment_status' => $paymentResult->status,
+    'redirect_url'   => $paymentResult->redirectUrl,
 ], 201);
     }
 
@@ -380,8 +366,6 @@ public function reorder(Request $request, Order $order)
             abort(403, 'You do not have permission to update order items.');
         }
 
-        $item->update(['status' => $validated['status']]);
-        
 $order = $item->order()->with('items')->first();
 $previousStatus = $order->computedStatus();
 
