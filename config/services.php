@@ -39,4 +39,11 @@ return [
     'secret'         => env('STRIPE_SECRET_KEY'),
     'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
 ],
+'paypal' => [
+    'client_id'      => env('PAYPAL_CLIENT_ID'),
+    'secret'         => env('PAYPAL_SECRET'),
+    'mode'           => env('PAYPAL_MODE', 'sandbox'),
+    'webhook_id'     => env('PAYPAL_WEBHOOK_ID'),
+    'egp_to_usd_rate' => env('PAYPAL_EGP_TO_USD_RATE', 0.021), 
+],
 ];
