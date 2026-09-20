@@ -14,7 +14,7 @@ class RazorpayGateway implements PaymentGateway
 {
     private const BASE_URL = 'https://api.razorpay.com/v1';
 
-    public function charge(Order $order): PaymentResult
+public function charge(Order $order, ?string $savedPaymentMethodId = null): PaymentResult
     {
         $amountInPaise = (int) round(
             $order->total * config('services.razorpay.egp_to_inr_rate') * 100

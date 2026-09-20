@@ -35,7 +35,7 @@ class PayPalGateway implements PaymentGateway
         return $response->json('access_token');
     }
 
-public function charge(Order $order): PaymentResult
+public function charge(Order $order, ?string $savedPaymentMethodId = null): PaymentResult
 {
     $accessToken = $this->getAccessToken();
 

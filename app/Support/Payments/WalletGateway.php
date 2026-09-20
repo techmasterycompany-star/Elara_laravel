@@ -14,7 +14,7 @@ class WalletGateway implements PaymentGateway
      * خصم مباشر من رصيد اليوزر - بعكس Stripe/COD، هنا الدفع بيحصل
      * ويتأكد منه في نفس اللحظة، مفيش انتظار لأي بوابة خارجية.
      */
-    public function charge(Order $order): PaymentResult
+public function charge(Order $order, ?string $savedPaymentMethodId = null): PaymentResult
     {
         if (! $order->user_id) {
             return new PaymentResult(

@@ -14,22 +14,26 @@ class PaymentController extends Controller
 
     public function __construct(private PaymentService $paymentService) {}
 
-    public function pay(Request $request, Order $order)
-    {
-        $this->authorizeOrderOwnership($request, $order);
+  public function pay(Request $request, Order $order)
+{
+    $this->authorizeOrderOwnership($request, $order);
 
-        if ($order->status === 'paid') {
-            return response()->json(['message' => 'This order has already been paid.'], 422);
-        }
-
-        $result = $this->paymentService->pay($order);
-
-        return response()->json([
-    'success'       => $result->success,
-    'status'        => $result->status,
-    'redirect_url'  => $result->redirectUrl,
-    'message'       => $result->message,
-    'gateway_data'  => $result->gatewayData,   
-]);
+    if ($order->status === 'paid') {
+        return response()->json(['message' => 'This order has already been paid.'], 422);
     }
+
+    $validated = $request->validate([
+        'saved_payment_method_id' => ['nullable', 'string'],
+    ]);
+
+    $result = $this->paymentService->pay($order, $validated['saved_payment_method_id'] ?? null);
+
+    return response()->json([
+        'success'      => $result->success,
+        'status'       => $result->status,
+        'redirect_url' => $result->redirectUrl,
+        'gateway_data' => $result->gatewayData ?? null,
+        'message'      => $result->message,
+    ]);
+}
 }

@@ -4,12 +4,22 @@ namespace App\Http\Controllers\Api\User;
 
 use App\Http\Controllers\Controller;
 use App\Models\PaymentMethod;
+use App\Support\Payments\StripeGateway;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class PaymentMethodController extends Controller
 {
-   
+    public function __construct(private StripeGateway $stripeGateway) {}
+
+    public function createSetupIntent(Request $request)
+    {
+        $result = $this->stripeGateway->createSetupIntent($request->user());
+
+        return response()->json($result);
+    }
+
+    
     public function index(Request $request)
     {
         $methods = $request->user()->paymentMethods()->latest()->get();
@@ -19,6 +29,7 @@ class PaymentMethodController extends Controller
         ]);
     }
 
+   
     public function store(Request $request)
     {
         $validated = $request->validate([

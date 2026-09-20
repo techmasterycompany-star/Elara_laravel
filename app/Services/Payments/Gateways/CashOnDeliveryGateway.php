@@ -10,7 +10,7 @@ use Illuminate\Http\Request;
 
 class CashOnDeliveryGateway implements PaymentGateway
 {
-    public function charge(Order $order): PaymentResult
+    public function charge(Order $order, ?string $savedPaymentMethodId = null): PaymentResult
     {
         // مفيش أي API خارجي — بس بنسجل إن الأوردر ده هيتدفع كاش وقت التسليم
         return new PaymentResult(

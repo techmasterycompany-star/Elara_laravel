@@ -9,8 +9,7 @@ use Illuminate\Http\Request;
 
 interface PaymentGateway
 {
-    public function charge(Order $order): PaymentResult;
-
+    public function charge(Order $order, ?string $savedPaymentMethodId = null): PaymentResult;
     public function refund(Payment $payment): PaymentResult;
 
     public function handleWebhook(Request $request): void;

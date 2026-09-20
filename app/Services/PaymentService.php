@@ -12,43 +12,43 @@ use Illuminate\Http\Request;
 
 class PaymentService
 {
-    public function pay(Order $order): PaymentResult
-    {
-        // ---- Idempotency المركزية: اتأكد إنه مدفوع بالفعل قبل أي حاجة تانية ----
-        $existing = Payment::where('order_id', $order->id)
-            ->where('status', 'paid')
-            ->first();
+    
+public function pay(Order $order, ?string $savedPaymentMethodId = null): PaymentResult
+{
+    $payment = Payment::where('order_id', $order->id)
+        ->where('status', 'paid')
+        ->first();
 
-        if ($existing) {
-            return new PaymentResult(
-                success: true,
-                status: 'paid',
-                transactionId: $existing->gateway_transaction_id,
-                message: 'This order has already been paid.',
-            );
-        }
-
-        $gateway = $this->resolveGateway($order->payment_method);
-
-        $result = $gateway->charge($order);
-
-        DB::transaction(function () use ($order, $result) {
-            Payment::updateOrCreate(
-                ['order_id' => $order->id, 'gateway' => $order->payment_method],
-                [
-                    'gateway_transaction_id' => $result->transactionId,
-                    'amount'                 => $order->total,
-                    'status'                 => $result->status,
-                ]
-            );
-
-            if ($result->status === 'paid') {
-                $order->update(['status' => 'paid']);
-            }
-        });
-
-        return $result;
+    if ($payment) {
+        return new PaymentResult(
+            success: true,
+            status: 'paid',
+            transactionId: $payment->gateway_transaction_id,
+            redirectUrl: null,
+            message: 'Order already paid.',
+        );
     }
+
+    $gateway = $this->resolveGateway($order->payment_method);
+    $result  = $gateway->charge($order, $savedPaymentMethodId); // ⬅️ الباراميتر الجديد بيتمرر هنا
+
+    DB::transaction(function () use ($order, $result) {
+        Payment::updateOrCreate(
+            ['order_id' => $order->id, 'gateway' => $order->payment_method],
+            [
+                'gateway_transaction_id' => $result->transactionId,
+                'amount'                 => $order->total,
+                'status'                 => $result->status,
+            ]
+        );
+
+        if ($result->status === 'paid') {
+            $order->update(['status' => 'paid']);
+        }
+    });
+
+    return $result;
+}
 
     // app/Services/PaymentService.php
 
