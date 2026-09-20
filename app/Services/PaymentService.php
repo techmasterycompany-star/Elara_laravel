@@ -56,11 +56,12 @@ class PaymentService
 private function resolveGateway(string $method): PaymentGateway
 {
     return match ($method) {
-        'cod'    => app(\App\Services\Payments\Gateways\CashOnDeliveryGateway::class),
-        'stripe' => app(\App\Support\Payments\StripeGateway::class),
-        'wallet' => app(\App\Support\Payments\WalletGateway::class),
-        'paypal' => app(\App\Support\Payments\PayPalGateway::class),   
-        default  => throw new \RuntimeException("Payment gateway [{$method}] is not implemented yet."),
+        'cod'      => app(\App\Services\Payments\Gateways\CashOnDeliveryGateway::class),
+        'stripe'   => app(\App\Support\Payments\StripeGateway::class),
+        'wallet'   => app(\App\Support\Payments\WalletGateway::class),
+        'paypal'   => app(\App\Support\Payments\PayPalGateway::class),
+        'razorpay' => app(\App\Support\Payments\RazorpayGateway::class),  
+        default    => throw new \RuntimeException("Payment gateway [{$method}] is not implemented yet."),
     };
 }
     public function confirmCashPayment(Request $request, Order $order)

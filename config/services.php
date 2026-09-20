@@ -46,4 +46,10 @@ return [
     'webhook_id'     => env('PAYPAL_WEBHOOK_ID'),
     'egp_to_usd_rate' => env('PAYPAL_EGP_TO_USD_RATE', 0.021), 
 ],
+'razorpay' => [
+    'key_id'          => env('RAZORPAY_KEY_ID'),
+    'key_secret'      => env('RAZORPAY_KEY_SECRET'),
+    'webhook_secret'  => env('RAZORPAY_WEBHOOK_SECRET'),
+    'egp_to_inr_rate' => env('RAZORPAY_EGP_TO_INR_RATE', 1.75), 
+],
 ];

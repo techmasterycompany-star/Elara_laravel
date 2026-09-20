@@ -133,6 +133,7 @@ Route::post('/orders/{order}/pay', [PaymentController::class, 'pay']);
 Route::middleware(['auth:sanctum', 'role:admin'])->post('/orders/{order}/confirm-cash-payment', [PaymentController::class, 'confirmCashPayment']);
 Route::post('/webhooks/stripe', [WebhookController::class, 'stripe']);
 Route::post('/webhooks/paypal', [WebhookController::class, 'paypal']);
+Route::post('/webhooks/razorpay', [WebhookController::class, 'razorpay']);
 
 Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/wallet')->group(function () {
     Route::post('/{user}/top-up', [WalletController::class, 'topUp']);

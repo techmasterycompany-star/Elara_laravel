@@ -25,10 +25,11 @@ class PaymentController extends Controller
         $result = $this->paymentService->pay($order);
 
         return response()->json([
-            'success'      => $result->success,
-            'status'       => $result->status,
-            'redirect_url' => $result->redirectUrl,
-            'message'      => $result->message,
-        ]);
+    'success'       => $result->success,
+    'status'        => $result->status,
+    'redirect_url'  => $result->redirectUrl,
+    'message'       => $result->message,
+    'gateway_data'  => $result->gatewayData,   
+]);
     }
 }
