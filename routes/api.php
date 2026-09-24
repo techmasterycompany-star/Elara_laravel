@@ -1,297 +1,451 @@
 <?php
 
-use App\Http\Controllers\Api\AuthController;
-use App\Http\Controllers\Api\EmailVerificationController;
-use App\Http\Controllers\Api\GoogleAuthController;
-use App\Http\Controllers\Api\PasswordResetController;
-use App\Http\Controllers\Api\User\AddressController;
-use App\Http\Controllers\Api\User\PaymentMethodController;
-use App\Http\Controllers\Api\User\ProfileController;
-use App\Http\Controllers\Api\User\WishlistController;
-use App\Http\Controllers\Api\Catalog\CategoryController;
-use App\Http\Controllers\Api\Catalog\ProductController;
-use App\Http\Controllers\Api\Catalog\ReviewController;
-use App\Http\Controllers\Api\Cart\CartController;
-use App\Http\Controllers\Api\Order\OrderController;
-use App\Http\Controllers\Api\Payment\PaymentController;
-use App\Http\Controllers\Api\Payment\WebhookController;
-use App\Http\Controllers\Api\Seller\SellerController;
-use App\Http\Controllers\Api\Seller\SellerProductController;
-use App\Http\Controllers\Api\Seller\SellerOrderController;
-use App\Http\Controllers\Api\Seller\SellerPayoutController;
-use App\Http\Controllers\Api\Admin\AdminUserController;
-use App\Http\Controllers\Api\Admin\AdminProductController;
-use App\Http\Controllers\Api\Admin\AdminOrderController;
-use App\Http\Controllers\Api\Admin\AdminCouponController;
-use App\Http\Controllers\Api\Admin\AdminSellerController;
-use App\Http\Controllers\Api\Admin\AdminPayoutController;
-use App\Http\Controllers\Api\Admin\BannerController;
-use App\Http\Controllers\Api\Admin\WalletController;
+namespace App\Http\Controllers\Api\Order;
+
+use App\Http\Controllers\Api\Cart\Concerns\ResolvesCart;
+use App\Http\Controllers\Controller;
+use App\Models\Address;
+use App\Models\Order;
+use App\Models\OrderItem;
+use App\Models\Product;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use App\Mail\OrderConfirmationMail;
+use App\Mail\OrderStatusChangedMail;
+use Illuminate\Support\Facades\Mail;
+use App\Models\Payment;
+use App\Models\User;
+use App\Models\LoyaltyPoint;
+use App\Http\Controllers\Concerns\AuthorizesOrderOwnership;
+use App\Services\PaymentService;
 
-/*
-|--------------------------------------------------------------------------
-| API Routes
-|--------------------------------------------------------------------------
-*/
 
-Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
-    return $request->user();
+
+class OrderController extends Controller
+{
+    use ResolvesCart, AuthorizesOrderOwnership;
+ public function __construct(private PaymentService $paymentService) {}
+    private const DISCOUNT_TIERS = [
+        ['min_subtotal' => 2000, 'discount' => 250],
+        ['min_subtotal' => 1000, 'discount' => 100],
+    ];
+
+    private const SHIPPING_FEE = 100;
+
+    // ---- #41 Loyalty points config ----
+    private const POINTS_EARN_PER_CURRENCY = 10;   // 1 point earned per 10 EGP of subtotal
+    private const POINTS_REDEMPTION_RATE   = 0.10; // 1 point = 0.10 EGP when redeemed
+
+    public function store(Request $request)
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'address_id'            => ['nullable', 'exists:addresses,id'],
+            'shipping_name'         => ['required_without:address_id', 'string', 'max:255'],
+            'shipping_phone'        => ['required_without:address_id', 'string', 'max:50'],
+            'shipping_street'       => ['required_without:address_id', 'string', 'max:255'],
+            'shipping_city'         => ['required_without:address_id', 'string', 'max:100'],
+            'shipping_governorate'  => ['required_without:address_id', 'string', 'max:100'],
+            'guest_email'           => [Rule::requiredIf(! $user), 'nullable', 'email'],
+            'payment_method'        => ['required', 'string', 'in:cod,stripe,paypal,razorpay,wallet'],
+            'redeem_points'         => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        if (! $user && ! empty($validated['address_id'])) {
+            abort(422, 'Guests cannot checkout with a saved address.');
+        }
+
+        if (! $user && ! empty($validated['redeem_points'])) {
+            abort(422, 'Guests cannot redeem loyalty points.');
+        }
+
+        if (! empty($validated['address_id'])) {
+            $address = Address::where('id', $validated['address_id'])
+                ->where('user_id', $user->id)
+                ->first();
+
+            if (! $address) {
+                abort(403, 'This address does not belong to you.');
+            }
+
+            $shipping = [
+                'shipping_name'        => $user->name,
+                'shipping_phone'       => $address->phone,
+                'shipping_street'      => $address->street,
+                'shipping_city'        => $address->city,
+                'shipping_governorate' => $address->governorate,
+            ];
+        } else {
+            $shipping = [
+                'shipping_name'        => $validated['shipping_name'],
+                'shipping_phone'       => $validated['shipping_phone'],
+                'shipping_street'      => $validated['shipping_street'],
+                'shipping_city'        => $validated['shipping_city'],
+                'shipping_governorate' => $validated['shipping_governorate'],
+            ];
+        }
+
+        $cart = $this->resolveCart($request, createIfMissing: false);
+
+        if (! $cart || $cart->items->isEmpty()) {
+            abort(422, 'Your cart is empty.');
+        }
+
+        $cart->load(['items.product', 'coupon']);
+
+        $issues = collect();
+
+        foreach ($cart->items as $item) {
+            $product = $item->product;
+
+            if (! $product || $product->status !== 'active') {
+                $issues->push(['product_id' => $item->product_id, 'reason' => 'unavailable']);
+                continue;
+            }
+
+            if ($item->quantity > $product->stock) {
+                $issues->push(['product_id' => $item->product_id, 'reason' => 'out_of_stock']);
+            }
+        }
+
+        if ($issues->isNotEmpty()) {
+            return response()->json([
+                'message' => 'Some items in your cart are no longer available.',
+                'issues'  => $issues->values(),
+            ], 422);
+        }
+
+        $order = DB::transaction(function () use ($user, $cart, $shipping, $validated) {
+    $lineData = [];
+    $subtotal = 0;
+
+    foreach ($cart->items as $item) {
+        $product = Product::where('id', $item->product_id)->lockForUpdate()->first();
+
+        if (! $product || $product->status !== 'active' || $product->stock < $item->quantity) {
+            abort(422, "Product #{$item->product_id} is no longer available in the requested quantity.");
+        }
+
+        $price = $product->currentPrice();
+
+        $lineData[] = [
+            'product'  => $product,
+            'quantity' => $item->quantity,
+            'price'    => $price,
+        ];
+
+        $subtotal += $price * $item->quantity;
+    }
+
+    $tierDiscount = collect(self::DISCOUNT_TIERS)
+        ->first(fn ($tier) => $subtotal >= $tier['min_subtotal'])['discount'] ?? 0;
+
+    $couponDiscount = 0;
+    $coupon = $cart->coupon;
+
+    if ($coupon && $coupon->isValid()) {
+        $couponDiscount = $coupon->calculateDiscount((float) $subtotal);
+    } else {
+        $coupon = null;
+    }
+
+    if ($couponDiscount > 0 && $couponDiscount >= $tierDiscount) {
+        $discount = $couponDiscount;
+    } else {
+        $discount = $tierDiscount;
+        $coupon   = null;
+    }
+
+    // ---- #41 Redeem loyalty points, capped by balance and by what's left of the subtotal ----
+    $pointsRedeemed = 0;
+    $pointsDiscount = 0;
+
+    if ($user && ! empty($validated['redeem_points'])) {
+        $availablePoints = (int) $user->loyaltyPoints()->lockForUpdate()->sum('points');
+        $requestedPoints = min($validated['redeem_points'], $availablePoints);
+
+        $maxDiscountable = max(0, $subtotal - $discount);
+        $pointsDiscount  = min($requestedPoints * self::POINTS_REDEMPTION_RATE, $maxDiscountable);
+        $pointsRedeemed  = $pointsDiscount > 0
+            ? (int) ceil($pointsDiscount / self::POINTS_REDEMPTION_RATE)
+            : 0;
+        $pointsDiscount  = round($pointsRedeemed * self::POINTS_REDEMPTION_RATE, 2);
+
+        $discount += $pointsDiscount;
+    }
+
+    $shippingFee = self::SHIPPING_FEE;
+    $total       = $subtotal - $discount + $shippingFee;
+
+    // فحص سريع بس (من غير lock ومن غير خصم) - يمنع إنشاء أوردر وحجز stock
+    // لعميل رصيده مش كافي أصلاً. الخصم الفعلي والتحقق النهائي (بـ lockForUpdate)
+    // بيحصلوا لاحقًا جوّه WalletGateway::charge() عن طريق PaymentService.
+    if ($validated['payment_method'] === 'wallet') {
+        if (! $user) {
+            abort(422, 'Wallet payment requires a logged-in account.');
+        }
+
+        if ($user->wallet_balance < $total) {
+            abort(422, 'Insufficient wallet balance. Please choose another payment method or top up your wallet.');
+        }
+    }
+
+    $order = Order::create([
+        'order_number'   => 'TEMP-' . Str::uuid(),
+        'user_id'        => $user?->id,
+        'coupon_id'      => $coupon?->id,
+        ...$shipping,
+        'guest_email'    => $user ? null : $validated['guest_email'],
+        'status'         => 'pending_payment',
+        'subtotal'       => round($subtotal, 2),
+        'discount'       => round($discount, 2),
+        'shipping_fee'   => $shippingFee,
+        'total'          => round($total, 2),
+        'payment_method' => $validated['payment_method'],
+    ]);
+
+    $order->update(['order_number' => Order::generateOrderNumber($order->id)]);
+
+    foreach ($lineData as $line) {
+        $product = $line['product'];
+
+        $product->decrement('stock', $line['quantity']);
+
+        $order->items()->create([
+            'product_id'   => $product->id,
+            'seller_id'    => $product->seller_id,
+            'product_name' => $product->name,
+            'product_sku'  => $product->sku,
+            'quantity'     => $line['quantity'],
+            'price'        => $line['price'],
+            'status'       => 'pending',
+        ]);
+    }
+
+    if ($coupon) {
+        $coupon->increment('used_count');
+    }
+
+    // ---- #41 Award points on order confirmation (in the same transaction) ----
+    if ($user) {
+        $earnedPoints = (int) floor($subtotal / self::POINTS_EARN_PER_CURRENCY);
+
+        if ($earnedPoints > 0) {
+            LoyaltyPoint::create([
+                'user_id'  => $user->id,
+                'points'   => $earnedPoints,
+                'source'   => 'order_placed',
+                'order_id' => $order->id,
+            ]);
+        }
+
+        if ($pointsRedeemed > 0) {
+            LoyaltyPoint::create([
+                'user_id'  => $user->id,
+                'points'   => -$pointsRedeemed,
+                'source'   => 'order_redemption',
+                'order_id' => $order->id,
+            ]);
+        }
+    }
+
+    $cart->items()->delete();
+    $cart->update(['coupon_id' => null]);
+
+    return $order;
 });
+$paymentResult = $this->paymentService->pay($order);
 
-/*
-|--------------------------------------------------------------------------
-| Auth (Register / Login / Password)
-|--------------------------------------------------------------------------
-*/
-Route::middleware('throttle:6,1')->prefix('auth')->group(function () {
-    Route::post('/register', [AuthController::class, 'register']);
-    Route::post('/login', [AuthController::class, 'login']);
-    Route::post('/forgot-password', [PasswordResetController::class, 'sendResetLink']);
-    Route::post('/reset-password', [PasswordResetController::class, 'resetPassword']);
-});
+$recipientEmail = $user?->email ?? $order->guest_email;
 
-/*
-|--------------------------------------------------------------------------
-| Google Social Login
-|--------------------------------------------------------------------------
-*/
-Route::prefix('auth/google')->group(function () {
-    Route::get('/redirect', [GoogleAuthController::class, 'redirect']);
-    Route::get('/callback', [GoogleAuthController::class, 'callback']);
-});
+if ($recipientEmail) {
+    Mail::to($recipientEmail)->send(new OrderConfirmationMail($order));
+}
 
-/*
-|--------------------------------------------------------------------------
-| Authenticated Auth Actions (Logout / Email Verification)
-|--------------------------------------------------------------------------
-*/
-Route::middleware('auth:sanctum')->group(function () {
-    Route::post('/auth/logout', [AuthController::class, 'logout']);
+return response()->json([
+    'message'        => 'Order placed successfully.',
+    'order'          => $order->load('items'),
+    'payment_status' => $paymentResult->status,
+    'redirect_url'   => $paymentResult->redirectUrl,
+], 201);
+    }
 
-    Route::get('/email/verify/{id}/{hash}', [EmailVerificationController::class, 'verify'])
-        ->middleware('signed')
-        ->name('verification.verify');
+    // ---- #25 Order Status & Tracking ----
 
-    Route::post('/email/resend', [EmailVerificationController::class, 'resend'])
-        ->middleware('throttle:6,1');
-});
+    public function show(Request $request, Order $order)
+{
+    $this->authorizeOrderOwnership($request, $order);   
 
-/*
-|--------------------------------------------------------------------------
-| User Profile
-|--------------------------------------------------------------------------
-*/
-Route::middleware('auth:sanctum')->prefix('profile')->group(function () {
-    Route::get('/', [ProfileController::class, 'show']);
-    Route::post('/', [ProfileController::class, 'update']);
-    Route::put('/password', [ProfileController::class, 'updatePassword']);
-});
+    $order->load('items');
 
-/*
-|--------------------------------------------------------------------------
-| User Addresses
-|--------------------------------------------------------------------------
-*/
-Route::middleware('auth:sanctum')->prefix('addresses')->group(function () {
-    Route::get('/', [AddressController::class, 'index']);
-    Route::post('/', [AddressController::class, 'store']);
-    Route::put('/{address}', [AddressController::class, 'update']);
-    Route::delete('/{address}', [AddressController::class, 'destroy']);
-});
+    return response()->json([
+        'order'          => $order,
+        'overall_status' => $order->computedStatus(),
+    ]);
+}
+public function index(Request $request)
+{
+    /** @var \Illuminate\Pagination\LengthAwarePaginator $orders */
+    $orders = $request->user()
+        ->orders()
+        ->with('items')
+        ->latest()
+        ->paginate(10);
 
-/*
-|--------------------------------------------------------------------------
-| User Payment Methods (Saved Cards)
-|--------------------------------------------------------------------------
-*/
-Route::middleware('auth:sanctum')->prefix('payment-methods')->group(function () {
-    Route::get('/', [PaymentMethodController::class, 'index']);
-    Route::post('/', [PaymentMethodController::class, 'store']);
-    Route::delete('/{paymentMethod}', [PaymentMethodController::class, 'destroy']);
-    Route::post('/setup-intent', [PaymentMethodController::class, 'createSetupIntent']);
-});
+    $orders->through(function ($order) {
+        $order->overall_status = $order->computedStatus();
+        return $order;
+    });
 
-/*
-|--------------------------------------------------------------------------
-| User Wishlist
-|--------------------------------------------------------------------------
-*/
-Route::middleware('auth:sanctum')->prefix('wishlist')->group(function () {
-    Route::get('/', [WishlistController::class, 'index']);
-    Route::post('/', [WishlistController::class, 'store']);
-    Route::delete('/{product}', [WishlistController::class, 'destroy']);
-});
+    return response()->json($orders);
+}
 
-/*
-|--------------------------------------------------------------------------
-| Categories
-|--------------------------------------------------------------------------
-*/
-Route::get('/categories', [CategoryController::class, 'index']);
+    public function cancel(Request $request, Order $order)
+{
+    $this->authorizeOrderOwnership($request, $order);
 
-Route::middleware(['auth:sanctum', 'role:admin'])->prefix('categories')->group(function () {
-    Route::post('/', [CategoryController::class, 'store']);
-    Route::put('/{category}', [CategoryController::class, 'update']);
-    Route::delete('/{category}', [CategoryController::class, 'destroy']);
-});
+    $order->load('items');
 
-/*
-|--------------------------------------------------------------------------
-| Products (Public: browse/search/filter, Admin+Seller: manage)
-|--------------------------------------------------------------------------
-*/
-Route::get('/products/search', [ProductController::class, 'search']);
-Route::get('/products/filter', [ProductController::class, 'filter']);
-Route::get('/products', [ProductController::class, 'index']);
-Route::get('/products/{product}', [ProductController::class, 'show']);
+    if ($order->items->contains(fn ($item) => $item->status !== 'pending')) {
+        return response()->json([
+            'message' => 'This order can no longer be cancelled.',
+        ], 422);
+    }
 
-Route::middleware(['auth:sanctum', 'role:admin,seller'])->prefix('products')->group(function () {
-    Route::post('/', [ProductController::class, 'store']);
-    Route::put('/{product}', [ProductController::class, 'update']);
-    Route::patch('/{product}/status', [ProductController::class, 'updateStatus']);
-    Route::delete('/{product}', [ProductController::class, 'destroy']);
-    Route::post('/{product}/images', [ProductController::class, 'storeImage']);
-    Route::delete('/{product}/images/{image}', [ProductController::class, 'destroyImage']);
-});
+    $refundMessage = null;
 
-/*
-|--------------------------------------------------------------------------
-| Product Reviews
-|--------------------------------------------------------------------------
-*/
-Route::get('/products/{product}/reviews', [ReviewController::class, 'index']);
+    // لو الأوردر كان مدفوع فعلًا، نحاول نرجع الفلوس الأول قبل ما نلغي أي حاجة
+    if ($order->status === 'paid') {
+        $refundResult = $this->paymentService->refund($order);
 
-Route::middleware('auth:sanctum')->group(function () {
-    Route::post('/products/{product}/reviews', [ReviewController::class, 'store']);
-    Route::put('/reviews/{review}', [ReviewController::class, 'update']);
-    Route::delete('/reviews/{review}', [ReviewController::class, 'destroy']);
-});
+        if (! $refundResult->success) {
+            // ماوقفناش الإلغاء - بس بنبلّغ إن الرد المالي محتاج تدخل يدوي (زي حالة COD)
+            $refundMessage = $refundResult->message;
+        }
+    }
 
-/*
-|--------------------------------------------------------------------------
-| Homepage Banners (Public)
-|--------------------------------------------------------------------------
-*/
-Route::get('/banners', [BannerController::class, 'index']);
+    DB::transaction(function () use ($order) {
+        foreach ($order->items as $item) {
+            Product::where('id', $item->product_id)->increment('stock', $item->quantity);
+            $item->update(['status' => 'cancelled']);
+        }
 
-/*
-|--------------------------------------------------------------------------
-| Cart
-|--------------------------------------------------------------------------
-*/
-Route::prefix('cart')->group(function () {
-    Route::get('/', [CartController::class, 'index']);
-    Route::get('/summary', [CartController::class, 'summary']);
-    Route::post('/items', [CartController::class, 'store']);
-    Route::put('/items/{item}', [CartController::class, 'update']);
-    Route::delete('/items/{item}', [CartController::class, 'destroy']);
-    Route::post('/coupon', [CartController::class, 'applyCoupon']);
-    Route::delete('/coupon', [CartController::class, 'removeCoupon']);
-});
+        // رجوع استخدام الكوبون - لو مبقاش أقل من صفر
+        if ($order->coupon_id) {
+            $order->coupon()->decrement('used_count');
+        }
 
-/*
-|--------------------------------------------------------------------------
-| Orders
-|--------------------------------------------------------------------------
-*/
-Route::post('/orders', [OrderController::class, 'store']);
-Route::get('/orders/{order}', [OrderController::class, 'show']);
-Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
+        // ---- #41 Reverse loyalty points earned/redeemed on this order, if any ----
+        LoyaltyPoint::where('order_id', $order->id)->delete();
 
-Route::middleware('auth:sanctum')->group(function () {
-    Route::get('/orders', [OrderController::class, 'index']);
-    Route::post('/orders/{order}/reorder', [OrderController::class, 'reorder']);
-});
+        $order->update(['status' => 'cancelled']);
+    });
 
-Route::middleware(['auth:sanctum', 'role:admin,seller'])->group(function () {
-    Route::patch('/order-items/{item}/status', [OrderController::class, 'updateItemStatus']);
-});
+    return response()->json([
+        'message'        => 'Order cancelled successfully.',
+        'refund_message' => $refundMessage, // null لو الرد نجح تلقائيًا أو الأوردر مكانش مدفوع أصلًا
+    ]);
+}
+public function reorder(Request $request, Order $order)
+{
+    $this->authorizeOrderOwnership($request, $order);
 
-/*
-|--------------------------------------------------------------------------
-| Payments & Webhooks
-|--------------------------------------------------------------------------
-*/
-Route::post('/orders/{order}/pay', [PaymentController::class, 'pay']);
+    $order->load('items');
 
-Route::middleware(['auth:sanctum', 'role:admin'])
-    ->post('/orders/{order}/confirm-cash-payment', [PaymentController::class, 'confirmCashPayment']);
+    $cart = $this->resolveCart($request, createIfMissing: true);
 
-Route::post('/webhooks/stripe', [WebhookController::class, 'stripe']);
-Route::post('/webhooks/paypal', [WebhookController::class, 'paypal']);
-Route::post('/webhooks/razorpay', [WebhookController::class, 'razorpay']);
+    $skipped = collect();
 
-/*
-|--------------------------------------------------------------------------
-| Seller
-|--------------------------------------------------------------------------
-*/
-Route::middleware('auth:sanctum')->prefix('seller')->group(function () {
-    Route::post('/register', [SellerController::class, 'register']);
-    Route::get('/profile', [SellerController::class, 'show']);
-    Route::put('/profile', [SellerController::class, 'update']);
-    Route::get('/products', [SellerProductController::class, 'index']);
-    Route::get('/products/performance', [SellerProductController::class, 'performance']);
-    Route::get('/orders', [SellerOrderController::class, 'index']);
-    Route::get('/orders/{item}', [SellerOrderController::class, 'show']);
-    Route::get('/earnings', [SellerPayoutController::class, 'earnings']);
-    Route::get('/payouts', [SellerPayoutController::class, 'index']);
-    Route::post('/payouts', [SellerPayoutController::class, 'requestPayout']);
-});
+    DB::transaction(function () use ($order, $cart, &$skipped) {
+        foreach ($order->items as $orderItem) {
+            $product = Product::where('id', $orderItem->product_id)->first();
 
-/*
-|--------------------------------------------------------------------------
-| Admin
-|--------------------------------------------------------------------------
-*/
-Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/wallet')->group(function () {
-    Route::post('/{user}/top-up', [WalletController::class, 'topUp']);
-});
+            if (! $product || $product->status !== 'active') {
+                $skipped->push(['product_id' => $orderItem->product_id, 'reason' => 'unavailable']);
+                continue;
+            }
 
-Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/users')->group(function () {
-    Route::get('/', [AdminUserController::class, 'index']);
-    Route::get('/{user}', [AdminUserController::class, 'show']);
-    Route::patch('/{user}/suspend', [AdminUserController::class, 'suspend']);
-    Route::patch('/{user}/activate', [AdminUserController::class, 'activate']);
-    Route::delete('/{user}', [AdminUserController::class, 'destroy']);
-});
+            $cartItem    = $cart->items()->where('product_id', $product->id)->first();
+            $newQuantity = $cartItem ? $cartItem->quantity + $orderItem->quantity : $orderItem->quantity;
 
-// ---- #32 Admin: manage products & categories ----
-Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/products')->group(function () {
-    Route::get('/', [AdminProductController::class, 'index']);
-    Route::patch('/bulk-status', [AdminProductController::class, 'bulkUpdateStatus']);
-});
+            if ($newQuantity > $product->stock) {
+                $skipped->push(['product_id' => $product->id, 'reason' => 'out_of_stock']);
+                continue;
+            }
 
-// ---- #33 Admin: manage orders & shipping ----
-Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/orders')->group(function () {
-    Route::get('/', [AdminOrderController::class, 'index']);
-    Route::get('/{order}', [AdminOrderController::class, 'show']);
-    Route::put('/{order}/shipping', [AdminOrderController::class, 'updateShipping']);
-});
+            if ($cartItem) {
+                $cartItem->update(['quantity' => $newQuantity]);
+            } else {
+                $cart->items()->create([
+                    'product_id'   => $product->id,
+                    'quantity'     => $orderItem->quantity,
+                    'price_at_add' => $product->currentPrice(),
+                ]);
+            }
+        }
+    });
 
-// ---- #34 Admin: promo code management ----
-Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/coupons')->group(function () {
-    Route::get('/', [AdminCouponController::class, 'index']);
-    Route::post('/', [AdminCouponController::class, 'store']);
-    Route::put('/{coupon}', [AdminCouponController::class, 'update']);
-    Route::patch('/{coupon}/deactivate', [AdminCouponController::class, 'deactivate']);
-    Route::get('/{coupon}/stats', [AdminCouponController::class, 'stats']);
-});
+    return response()->json([
+        'message' => 'Items added to your cart from this order.',
+        'cart'    => $cart->load('items.product'),
+        'skipped' => $skipped->values(),
+    ]);
+}
 
-// ---- #35 Admin: homepage banners ----
-Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/banners')->group(function () {
-    Route::get('/', [BannerController::class, 'adminIndex']);
-    Route::post('/', [BannerController::class, 'store']);
-    Route::put('/{banner}', [BannerController::class, 'update']);
-    Route::delete('/{banner}', [BannerController::class, 'destroy']);
-    Route::patch('/{banner}/toggle', [BannerController::class, 'toggleActive']);
-    Route::post('/reorder', [BannerController::class, 'reorder']);
-});
+    public function updateItemStatus(Request $request, OrderItem $item)
+    {
+        $validated = $request->validate([
+            'status' => ['required', 'in:pending,processing,shipped,delivered,cancelled'],
+        ]);
 
-// ---- #36 Admin: approve/reject seller store profile ----
-Route::middleware(['auth:sanctum', 'role:admin'])->patch('/admin/sellers/{seller}/status', [AdminSellerController::class, 'updateStatus']);
+        $user = $request->user();
 
-// ---- #39 Admin: mark a seller payout as paid ----
-Route::middleware(['auth:sanctum', 'role:admin'])->patch('/admin/payouts/{payout}/mark-paid', [AdminPayoutController::class, 'markPaid']);
+        if ($user->isSeller()) {
+            if ($item->seller_id !== $user->seller?->id) {
+                abort(403, 'You do not have permission to update this order item.');
+            }
+
+            $allowedTransitions = [
+                'pending'    => 'processing',
+                'processing' => 'shipped',
+            ];
+
+            if (($allowedTransitions[$item->status] ?? null) !== $validated['status']) {
+                abort(403, 'Sellers can only move an item from pending to processing, or processing to shipped.');
+            }
+        } elseif (! $user->isAdmin()) {
+            abort(403, 'You do not have permission to update order items.');
+        }
+
+$order = $item->order()->with('items')->first();
+$previousStatus = $order->computedStatus();
+
+$item->update(['status' => $validated['status']]);
+
+$order->load('items'); // نعيد تحميل الـ items عشان computedStatus() ياخد القيم الجديدة بعد التحديث
+$newStatus = $order->computedStatus();
+
+if ($newStatus !== $previousStatus) {
+    $recipientEmail = $order->user?->email ?? $order->guest_email;
+
+    if ($recipientEmail) {
+        Mail::to($recipientEmail)->send(new OrderStatusChangedMail($order, $newStatus));
+    }
+}
+
+return response()->json([
+    'message' => 'Order item status updated.',
+    'item'    => $item->fresh(),
+]);
+
+        return response()->json([
+            'message' => 'Order item status updated.',
+            'item'    => $item->fresh(),
+        ]);
+    }
+
+    
+}
