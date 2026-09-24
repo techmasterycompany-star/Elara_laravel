@@ -15,10 +15,12 @@ use App\Http\Controllers\Api\Cart\CartController;
 use App\Http\Controllers\Api\Order\OrderController;
 use App\Http\Controllers\Api\Payment\PaymentController;
 use App\Http\Controllers\Api\Payment\WebhookController;
+use App\Http\Controllers\Api\Seller\SellerController;
 use App\Http\Controllers\Api\Admin\AdminUserController;
 use App\Http\Controllers\Api\Admin\AdminProductController;
 use App\Http\Controllers\Api\Admin\AdminOrderController;
 use App\Http\Controllers\Api\Admin\AdminCouponController;
+use App\Http\Controllers\Api\Admin\AdminSellerController;
 use App\Http\Controllers\Api\Admin\BannerController;
 use App\Http\Controllers\Api\Admin\WalletController;
 use Illuminate\Http\Request;
@@ -219,6 +221,17 @@ Route::post('/webhooks/razorpay', [WebhookController::class, 'razorpay']);
 
 /*
 |--------------------------------------------------------------------------
+| Seller
+|--------------------------------------------------------------------------
+*/
+Route::middleware('auth:sanctum')->prefix('seller')->group(function () {
+    Route::post('/register', [SellerController::class, 'register']);
+    Route::get('/profile', [SellerController::class, 'show']);
+    Route::put('/profile', [SellerController::class, 'update']);
+});
+
+/*
+|--------------------------------------------------------------------------
 | Admin
 |--------------------------------------------------------------------------
 */
@@ -265,3 +278,6 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/banners')->grou
     Route::patch('/{banner}/toggle', [BannerController::class, 'toggleActive']);
     Route::post('/reorder', [BannerController::class, 'reorder']);
 });
+
+// ---- #36 Admin: approve/reject seller store profile ----
+Route::middleware(['auth:sanctum', 'role:admin'])->patch('/admin/sellers/{seller}/status', [AdminSellerController::class, 'updateStatus']);
