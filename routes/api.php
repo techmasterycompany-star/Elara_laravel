@@ -16,6 +16,8 @@ use App\Http\Controllers\Api\Order\OrderController;
 use App\Http\Controllers\Api\Payment\PaymentController;
 use App\Http\Controllers\Api\Payment\WebhookController;
 use App\Http\Controllers\Api\Admin\AdminUserController;
+use App\Http\Controllers\Api\Admin\AdminProductController;
+use App\Http\Controllers\Api\Admin\AdminOrderController;
 use App\Http\Controllers\Api\Admin\WalletController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -100,7 +102,7 @@ Route::middleware('auth:sanctum')->prefix('payment-methods')->group(function () 
     Route::get('/', [PaymentMethodController::class, 'index']);
     Route::post('/', [PaymentMethodController::class, 'store']);
     Route::delete('/{paymentMethod}', [PaymentMethodController::class, 'destroy']);
-    Route::post('/setup-intent', [PaymentMethodController::class, 'createSetupIntent']); // ⬅️ جديد
+    Route::post('/setup-intent', [PaymentMethodController::class, 'createSetupIntent']);
 });
 
 /*
@@ -221,4 +223,17 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/users')->group(
     Route::patch('/{user}/suspend', [AdminUserController::class, 'suspend']);
     Route::patch('/{user}/activate', [AdminUserController::class, 'activate']);
     Route::delete('/{user}', [AdminUserController::class, 'destroy']);
+});
+
+// ---- #32 Admin: manage products & categories ----
+Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/products')->group(function () {
+    Route::get('/', [AdminProductController::class, 'index']);
+    Route::patch('/bulk-status', [AdminProductController::class, 'bulkUpdateStatus']);
+});
+
+// ---- #33 Admin: manage orders & shipping ----
+Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/orders')->group(function () {
+    Route::get('/', [AdminOrderController::class, 'index']);
+    Route::get('/{order}', [AdminOrderController::class, 'show']);
+    Route::put('/{order}/shipping', [AdminOrderController::class, 'updateShipping']);
 });
