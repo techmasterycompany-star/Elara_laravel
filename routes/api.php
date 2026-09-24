@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\Admin\AdminUserController;
 use App\Http\Controllers\Api\Admin\AdminProductController;
 use App\Http\Controllers\Api\Admin\AdminOrderController;
 use App\Http\Controllers\Api\Admin\AdminCouponController;
+use App\Http\Controllers\Api\Admin\BannerController;
 use App\Http\Controllers\Api\Admin\WalletController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -164,6 +165,13 @@ Route::middleware('auth:sanctum')->group(function () {
 
 /*
 |--------------------------------------------------------------------------
+| Homepage Banners (Public)
+|--------------------------------------------------------------------------
+*/
+Route::get('/banners', [BannerController::class, 'index']);
+
+/*
+|--------------------------------------------------------------------------
 | Cart
 |--------------------------------------------------------------------------
 */
@@ -238,6 +246,7 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/orders')->group
     Route::get('/{order}', [AdminOrderController::class, 'show']);
     Route::put('/{order}/shipping', [AdminOrderController::class, 'updateShipping']);
 });
+
 // ---- #34 Admin: promo code management ----
 Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/coupons')->group(function () {
     Route::get('/', [AdminCouponController::class, 'index']);
@@ -245,4 +254,14 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/coupons')->grou
     Route::put('/{coupon}', [AdminCouponController::class, 'update']);
     Route::patch('/{coupon}/deactivate', [AdminCouponController::class, 'deactivate']);
     Route::get('/{coupon}/stats', [AdminCouponController::class, 'stats']);
+});
+
+// ---- #35 Admin: homepage banners ----
+Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/banners')->group(function () {
+    Route::get('/', [BannerController::class, 'adminIndex']);
+    Route::post('/', [BannerController::class, 'store']);
+    Route::put('/{banner}', [BannerController::class, 'update']);
+    Route::delete('/{banner}', [BannerController::class, 'destroy']);
+    Route::patch('/{banner}/toggle', [BannerController::class, 'toggleActive']);
+    Route::post('/reorder', [BannerController::class, 'reorder']);
 });
