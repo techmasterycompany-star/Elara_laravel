@@ -18,11 +18,13 @@ use App\Http\Controllers\Api\Payment\WebhookController;
 use App\Http\Controllers\Api\Seller\SellerController;
 use App\Http\Controllers\Api\Seller\SellerProductController;
 use App\Http\Controllers\Api\Seller\SellerOrderController;
+use App\Http\Controllers\Api\Seller\SellerPayoutController;
 use App\Http\Controllers\Api\Admin\AdminUserController;
 use App\Http\Controllers\Api\Admin\AdminProductController;
 use App\Http\Controllers\Api\Admin\AdminOrderController;
 use App\Http\Controllers\Api\Admin\AdminCouponController;
 use App\Http\Controllers\Api\Admin\AdminSellerController;
+use App\Http\Controllers\Api\Admin\AdminPayoutController;
 use App\Http\Controllers\Api\Admin\BannerController;
 use App\Http\Controllers\Api\Admin\WalletController;
 use Illuminate\Http\Request;
@@ -234,6 +236,9 @@ Route::middleware('auth:sanctum')->prefix('seller')->group(function () {
     Route::get('/products/performance', [SellerProductController::class, 'performance']);
     Route::get('/orders', [SellerOrderController::class, 'index']);
     Route::get('/orders/{item}', [SellerOrderController::class, 'show']);
+    Route::get('/earnings', [SellerPayoutController::class, 'earnings']);
+    Route::get('/payouts', [SellerPayoutController::class, 'index']);
+    Route::post('/payouts', [SellerPayoutController::class, 'requestPayout']);
 });
 
 /*
@@ -287,3 +292,6 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/banners')->grou
 
 // ---- #36 Admin: approve/reject seller store profile ----
 Route::middleware(['auth:sanctum', 'role:admin'])->patch('/admin/sellers/{seller}/status', [AdminSellerController::class, 'updateStatus']);
+
+// ---- #39 Admin: mark a seller payout as paid ----
+Route::middleware(['auth:sanctum', 'role:admin'])->patch('/admin/payouts/{payout}/mark-paid', [AdminPayoutController::class, 'markPaid']);
