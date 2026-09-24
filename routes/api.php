@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\Payment\PaymentController;
 use App\Http\Controllers\Api\Payment\WebhookController;
 use App\Http\Controllers\Api\Seller\SellerController;
 use App\Http\Controllers\Api\Seller\SellerProductController;
+use App\Http\Controllers\Api\Seller\SellerOrderController;
 use App\Http\Controllers\Api\Admin\AdminUserController;
 use App\Http\Controllers\Api\Admin\AdminProductController;
 use App\Http\Controllers\Api\Admin\AdminOrderController;
@@ -231,6 +232,8 @@ Route::middleware('auth:sanctum')->prefix('seller')->group(function () {
     Route::put('/profile', [SellerController::class, 'update']);
     Route::get('/products', [SellerProductController::class, 'index']);
     Route::get('/products/performance', [SellerProductController::class, 'performance']);
+    Route::get('/orders', [SellerOrderController::class, 'index']);
+    Route::get('/orders/{item}', [SellerOrderController::class, 'show']);
 });
 
 /*
