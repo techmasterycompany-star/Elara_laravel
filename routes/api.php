@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\Payment\WebhookController;
 use App\Http\Controllers\Api\Admin\AdminUserController;
 use App\Http\Controllers\Api\Admin\AdminProductController;
 use App\Http\Controllers\Api\Admin\AdminOrderController;
+use App\Http\Controllers\Api\Admin\AdminCouponController;
 use App\Http\Controllers\Api\Admin\WalletController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -236,4 +237,12 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/orders')->group
     Route::get('/', [AdminOrderController::class, 'index']);
     Route::get('/{order}', [AdminOrderController::class, 'show']);
     Route::put('/{order}/shipping', [AdminOrderController::class, 'updateShipping']);
+});
+// ---- #34 Admin: promo code management ----
+Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/coupons')->group(function () {
+    Route::get('/', [AdminCouponController::class, 'index']);
+    Route::post('/', [AdminCouponController::class, 'store']);
+    Route::put('/{coupon}', [AdminCouponController::class, 'update']);
+    Route::patch('/{coupon}/deactivate', [AdminCouponController::class, 'deactivate']);
+    Route::get('/{coupon}/stats', [AdminCouponController::class, 'stats']);
 });
