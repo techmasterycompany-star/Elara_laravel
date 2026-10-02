@@ -40,19 +40,19 @@ class CategoryController extends Controller
             }
         }
 
-        $slug = Str::slug($validated['name']);
-        $originalSlug = $slug;
-        $counter = 1;
+        // $slug = Str::slug($validated['name']);
+        // $originalSlug = $slug;
+        // $counter = 1;
 
-        while (Category::where('slug', $slug)->exists()) {
-            $slug = "{$originalSlug}-{$counter}";
-            $counter++;
-        }
+        // while (Category::where('slug', $slug)->exists()) {
+        //     $slug = "{$originalSlug}-{$counter}";
+        //     $counter++;
+        // }
 
-        $category = Category::create([
-            ...$validated,
-            'slug' => $slug,
-        ]);
+       $category = Category::create([
+    ...$validated,
+    'slug' => $this->generateUniqueSlug($validated['name']),
+]);
 
         if ($request->hasFile('image')) {
             $category->update([
@@ -97,9 +97,9 @@ class CategoryController extends Controller
             }
         }
 
-        if (isset($validated['name'])) {
-            $validated['slug'] = Str::slug($validated['name']);
-        }
+       if (isset($validated['name'])) {
+    $validated['slug'] = $this->generateUniqueSlug($validated['name'], $category->id);
+}
 
         $category->update($validated);
 
@@ -116,11 +116,32 @@ class CategoryController extends Controller
     }
 
     public function destroy(Category $category)
-    {
-        $category->delete();
-
+{
+    if ($category->products()->withTrashed()->exists()) {
         return response()->json([
-            'message' => __('Category deleted successfully.'),
-        ]);
+            'message' => __('Cannot delete a category that still has products. Move or delete them first.'),
+        ], 422);
     }
+
+    $category->delete();
+
+    return response()->json([
+        'message' => __('Category deleted successfully.'),
+    ]);
+}
+private function generateUniqueSlug(string $name, ?int $ignoreId = null): string
+{
+    $slug = Str::slug($name);
+    $originalSlug = $slug;
+    $counter = 1;
+
+    while (Category::where('slug', $slug)
+        ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
+        ->exists()) {
+        $slug = "{$originalSlug}-{$counter}";
+        $counter++;
+    }
+
+    return $slug;
+}
 }

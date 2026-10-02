@@ -35,7 +35,8 @@ class SellerPayoutController extends Controller
             $query->whereDate('created_at', '<=', $validated['date_to']);
         }
 
-        $earned = (clone $query)->get()->sum(fn ($item) => $item->lineTotal());
+        $earnedCents = (clone $query)->get()
+            ->sum(fn ($item) => $this->toCents($item->lineTotal()));
         $itemsCount = (clone $query)->count();
 
         return response()->json([
@@ -44,8 +45,8 @@ class SellerPayoutController extends Controller
                 'to'   => $validated['date_to'] ?? null,
             ],
             'delivered_items'    => $itemsCount,
-            'earnings_in_period' => round($earned, 2),
-            'available_balance'  => round($this->earnedBalance($seller->id), 2),
+            'earnings_in_period' => $earnedCents / 100,
+            'available_balance'  => $this->balanceInCents($seller->id) / 100,
         ]);
     }
 
@@ -63,16 +64,19 @@ class SellerPayoutController extends Controller
             'amount' => ['required', 'numeric', 'min:0.01'],
         ]);
 
-        $payout = DB::transaction(function () use ($seller, $validated) {
-            $balance = $this->earnedBalance($seller->id, lock: true);
+        $amountCents = $this->toCents($validated['amount']);
 
-            if ($validated['amount'] > $balance) {
+        $payout = DB::transaction(function () use ($seller, $validated, $amountCents) {
+            // Serialize concurrent payout requests for the same seller.
+            $seller->newQuery()->whereKey($seller->id)->lockForUpdate()->first();
+
+            if ($amountCents > $this->balanceInCents($seller->id)) {
                 abort(422, 'Requested amount exceeds your available balance.');
             }
 
             return SellerPayout::create([
                 'seller_id' => $seller->id,
-                'amount'    => $validated['amount'],
+                'amount'    => $amountCents / 100,
                 'status'    => 'pending',
             ]);
         });
@@ -98,22 +102,28 @@ class SellerPayoutController extends Controller
         return response()->json($payouts);
     }
 
-    private function earnedBalance(int $sellerId, bool $lock = false): float
+    /**
+     * Available balance in cents (integer): delivered earnings minus
+     * pending/paid payouts. Integer math avoids float errors such as
+     * 99.99 - 50.00 = 49.989999...
+     */
+    private function balanceInCents(int $sellerId): int
     {
         $earned = OrderItem::where('seller_id', $sellerId)
             ->where('status', 'delivered')
             ->get()
-            ->sum(fn ($item) => $item->lineTotal());
+            ->sum(fn ($item) => $this->toCents($item->lineTotal()));
 
-        $payoutsQuery = SellerPayout::where('seller_id', $sellerId)
-            ->whereIn('status', ['pending', 'paid']);
+        $taken = SellerPayout::where('seller_id', $sellerId)
+            ->whereIn('status', ['pending', 'paid'])
+            ->pluck('amount')
+            ->sum(fn ($amount) => $this->toCents($amount));
 
-        if ($lock) {
-            $payoutsQuery->lockForUpdate();
-        }
+        return max(0, $earned - $taken);
+    }
 
-        $alreadyTaken = $payoutsQuery->sum('amount');
-
-        return max(0, $earned - $alreadyTaken);
+    private function toCents(float|int|string $value): int
+    {
+        return (int) round(((float) $value) * 100);
     }
 }

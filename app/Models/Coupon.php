@@ -33,7 +33,9 @@ class Coupon extends Model
 
     public function isExpired(): bool
     {
-        return $this->expires_at !== null && $this->expires_at->isPast();
+        // expires_at is a date (midnight), so the coupon stays valid through the
+        // whole last day instead of expiring when that day starts.
+        return $this->expires_at !== null && $this->expires_at->copy()->endOfDay()->isPast();
     }
 
     public function hasReachedLimit(): bool

@@ -128,11 +128,20 @@ public function charge(Order $order, ?string $savedPaymentMethodId = null): Paym
 
 private function verifySignature(string $payload, ?string $signature): bool
 {
+    $secret = config('services.razorpay.webhook_secret');
+
+    // A missing secret would let anyone sign a payload with an empty key.
+    if (! is_string($secret) || $secret === '') {
+        Log::critical('Razorpay webhook secret is not configured; rejecting webhook.');
+
+        return false;
+    }
+
     if (! $signature) {
         return false;
     }
 
-    $expected = hash_hmac('sha256', $payload, config('services.razorpay.webhook_secret'));
+    $expected = hash_hmac('sha256', $payload, $secret);
 
     return hash_equals($expected, $signature);
 }

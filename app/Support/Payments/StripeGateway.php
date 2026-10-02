@@ -161,6 +161,11 @@ class StripeGateway implements PaymentGateway
         $sigHeader = $request->header('Stripe-Signature');
         $webhookSecret = config('services.stripe.webhook_secret');
 
+        if (! is_string($webhookSecret) || $webhookSecret === '') {
+            Log::critical('Stripe webhook secret is not configured; rejecting webhook.');
+            abort(400, 'Webhook is not configured.');
+        }
+
         try {
             $event = Webhook::constructEvent($payload, $sigHeader, $webhookSecret);
         } catch (UnexpectedValueException|SignatureVerificationException $e) {

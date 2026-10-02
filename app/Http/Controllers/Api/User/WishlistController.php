@@ -13,6 +13,7 @@ class WishlistController extends Controller
     {
         $items = $request->user()
             ->wishlist()
+            ->whereHas('product')
             ->with(['product' => function ($query) {
                 $query->with(['category', 'images']);
             }])
