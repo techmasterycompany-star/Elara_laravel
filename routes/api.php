@@ -156,8 +156,6 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('categories')->group(f
 | Products (Public: browse/search/filter, Admin+Seller: manage)
 |--------------------------------------------------------------------------
 */
-Route::get('/products/search', [ProductController::class, 'search']);
-Route::get('/products/filter', [ProductController::class, 'filter']);
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{product}', [ProductController::class, 'show']);
 
