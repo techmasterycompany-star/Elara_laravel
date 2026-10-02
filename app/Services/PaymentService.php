@@ -7,7 +7,7 @@ use App\Models\Order;
 use App\Models\Payment;
 use App\Support\Payments\PaymentResult;
 use Illuminate\Support\Facades\DB;
-use App\Services\Payments\Gateways;
+
 use Illuminate\Http\Request;
 
 class PaymentService
@@ -30,7 +30,7 @@ public function pay(Order $order, ?string $savedPaymentMethodId = null): Payment
     }
 
     $gateway = $this->resolveGateway($order->payment_method);
-    $result  = $gateway->charge($order, $savedPaymentMethodId); // ⬅️ الباراميتر الجديد بيتمرر هنا
+    $result  = $gateway->charge($order, $savedPaymentMethodId); 
 
     DB::transaction(function () use ($order, $result) {
         Payment::updateOrCreate(
@@ -50,7 +50,6 @@ public function pay(Order $order, ?string $savedPaymentMethodId = null): Payment
     return $result;
 }
 
-    // app/Services/PaymentService.php
 
 
 private function resolveGateway(string $method): PaymentGateway
@@ -64,31 +63,7 @@ private function resolveGateway(string $method): PaymentGateway
         default    => throw new \RuntimeException("Payment gateway [{$method}] is not implemented yet."),
     };
 }
-    public function confirmCashPayment(Request $request, Order $order)
-{
-    $payment = $order->payment()->where('gateway', 'cod')->first();
-
-    if (! $payment) {
-        return response()->json([
-            'message' => 'No cash-on-delivery payment found for this order.',
-        ], 404);
-    }
-
-    if ($payment->status === 'paid') {
-        return response()->json([
-            'message' => 'This payment has already been confirmed.',
-        ], 422);
-    }
-
-    DB::transaction(function () use ($payment, $order) {
-        $payment->update(['status' => 'paid']);
-        $order->update(['status' => 'paid']);
-    });
-
-    return response()->json([
-        'message' => 'Cash payment confirmed.',
-    ]);
-}
+   
 public function refund(Order $order): PaymentResult
 {
     $payment = Payment::where('order_id', $order->id)

@@ -163,6 +163,7 @@ Route::middleware(['auth:sanctum', 'role:admin,seller'])->prefix('products')->gr
     Route::post('/', [ProductController::class, 'store']);
     Route::put('/{product}', [ProductController::class, 'update']);
     Route::patch('/{product}/status', [ProductController::class, 'updateStatus']);
+     Route::patch('/{product}/stock', [ProductController::class, 'updateStock']); 
     Route::delete('/{product}', [ProductController::class, 'destroy']);
     Route::post('/{product}/images', [ProductController::class, 'storeImage']);
     Route::delete('/{product}/images/{image}', [ProductController::class, 'destroyImage']);
@@ -209,8 +210,13 @@ Route::prefix('cart')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::post('/orders', [OrderController::class, 'store']);
-Route::get('/orders/{order}', [OrderController::class, 'show']);
-Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
+Route::post('/orders', [OrderController::class, 'store']);
+
+Route::middleware('throttle:20,1')->group(function () {
+    Route::get('/orders/{order}', [OrderController::class, 'show']);
+    Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
+    Route::post('/orders/{order}/pay', [PaymentController::class, 'pay']);
+});
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/orders', [OrderController::class, 'index']);
@@ -226,7 +232,6 @@ Route::middleware(['auth:sanctum', 'role:admin,seller'])->group(function () {
 | Payments & Webhooks
 |--------------------------------------------------------------------------
 */
-Route::post('/orders/{order}/pay', [PaymentController::class, 'pay']);
 
 Route::middleware(['auth:sanctum', 'role:admin'])
     ->post('/orders/{order}/confirm-cash-payment', [PaymentController::class, 'confirmCashPayment']);
