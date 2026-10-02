@@ -9,10 +9,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use App\Models\NewsletterSubscriber;
+use App\Http\Controllers\Api\Concerns\MergesGuestCart;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
+     use MergesGuestCart;
         public function register(Request $request)
     {
         $validated = $request->validate([
@@ -31,10 +33,11 @@ class AuthController extends Controller
                 'password'          => $validated['password'],
                 'role'              => 'customer',
                 'is_active'         => true,
-                'email_verified_at' => is_null($validated['email'] ?? null) ? now() : null,
             ]);
 
-            if (! is_null($user->email)) {
+             if (is_null($user->email)) {
+                $user->markEmailAsVerified();
+            } else {
                 $user->sendEmailVerificationNotification();
             }
 
@@ -108,59 +111,59 @@ class AuthController extends Controller
      * Merge a guest cart (identified by session id) into the user's cart.
      * A failure here must never block login/registration, so it is logged and swallowed.
      */
-    private function mergeGuestCart(User $user, ?string $sessionId): void
-    {
-        if (! $sessionId) {
-            return;
-        }
+    // private function mergeGuestCart(User $user, ?string $sessionId): void
+    // {
+    //     if (! $sessionId) {
+    //         return;
+    //     }
 
-        try {
-            DB::transaction(function () use ($user, $sessionId) {
-                $guestCart = Cart::with('items.product')
-                    ->where('session_id', $sessionId)
-                    ->whereNull('user_id')
-                    ->first();
+    //     try {
+    //         DB::transaction(function () use ($user, $sessionId) {
+    //             $guestCart = Cart::with('items.product')
+    //                 ->where('session_id', $sessionId)
+    //                 ->whereNull('user_id')
+    //                 ->first();
 
-                if (! $guestCart) {
-                    return;
-                }
+    //             if (! $guestCart) {
+    //                 return;
+    //             }
 
-                $userCart = $user->cart()->firstOrCreate([]);
+    //             $userCart = $user->cart()->firstOrCreate([]);
 
-                foreach ($guestCart->items as $guestItem) {
-                    $product = $guestItem->product;
+    //             foreach ($guestCart->items as $guestItem) {
+    //                 $product = $guestItem->product;
 
-                    // Skip products that were deleted, are not live, or are out of stock
-                    if (! $product || $product->status !== 'active' || $product->stock < 1) {
-                        continue;
-                    }
+    //                 // Skip products that were deleted, are not live, or are out of stock
+    //                 if (! $product || $product->status !== 'active' || $product->stock < 1) {
+    //                     continue;
+    //                 }
 
-                    $existingItem = $userCart->items()
-                        ->where('product_id', $guestItem->product_id)
-                        ->first();
+    //                 $existingItem = $userCart->items()
+    //                     ->where('product_id', $guestItem->product_id)
+    //                     ->first();
 
-                    $newQuantity = $existingItem
-                        ? $existingItem->quantity + $guestItem->quantity
-                        : $guestItem->quantity;
+    //                 $newQuantity = $existingItem
+    //                     ? $existingItem->quantity + $guestItem->quantity
+    //                     : $guestItem->quantity;
 
-                    // Cap at available stock so the merge never creates an impossible quantity
-                    $newQuantity = min($newQuantity, $product->stock);
+    //                 // Cap at available stock so the merge never creates an impossible quantity
+    //                 $newQuantity = min($newQuantity, $product->stock);
 
-                    if ($existingItem) {
-                        $existingItem->update(['quantity' => $newQuantity]);
-                    } else {
-                        $userCart->items()->create([
-                            'product_id'   => $guestItem->product_id,
-                            'quantity'     => $newQuantity,
-                            'price_at_add' => $guestItem->price_at_add,
-                        ]);
-                    }
-                }
+    //                 if ($existingItem) {
+    //                     $existingItem->update(['quantity' => $newQuantity]);
+    //                 } else {
+    //                     $userCart->items()->create([
+    //                         'product_id'   => $guestItem->product_id,
+    //                         'quantity'     => $newQuantity,
+    //                         'price_at_add' => $guestItem->price_at_add,
+    //                     ]);
+    //                 }
+    //             }
 
-                $guestCart->delete();
-            });
-        } catch (\Throwable $e) {
-            report($e);
-        }
-    }
+    //             $guestCart->delete();
+    //         });
+    //     } catch (\Throwable $e) {
+    //         report($e);
+    //     }
+    // }
 }
