@@ -8,17 +8,19 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use App\Models\NewsletterSubscriber;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
-    public function register(Request $request)
+        public function register(Request $request)
     {
         $validated = $request->validate([
-            'name'     => ['required', 'string', 'max:255'],
-            'email'    => ['required_without:phone', 'nullable', 'email', 'unique:users,email'],
-            'phone'    => ['required_without:email', 'nullable', 'string', 'unique:users,phone'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'name'              => ['required', 'string', 'max:255'],
+            'email'             => ['required_without:phone', 'nullable', 'email', 'unique:users,email'],
+            'phone'             => ['required_without:email', 'nullable', 'string', 'unique:users,phone'],
+            'password'          => ['required', 'string', 'min:8', 'confirmed'],
+            'newsletter_opt_in' => ['nullable', 'boolean'],
         ]);
 
         $user = DB::transaction(function () use ($validated) {
@@ -39,7 +41,17 @@ class AuthController extends Controller
             return $user;
         });
 
-        // Guest cart merge on registration (Issue #21)
+        if ($request->boolean('newsletter_opt_in') && $user->email) {
+            try {
+                NewsletterSubscriber::updateOrCreate(
+                    ['email' => $user->email],
+                    ['unsubscribed_at' => null]
+                );
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
         $this->mergeGuestCart($user, $request->header('X-Session-Id'));
 
         $token = $user->createToken('auth_token')->plainTextToken;
