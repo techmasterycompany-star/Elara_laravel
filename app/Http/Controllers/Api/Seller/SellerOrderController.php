@@ -8,7 +8,6 @@ use Illuminate\Http\Request;
 
 class SellerOrderController extends Controller
 {
-    // ---- #38 View order items containing the seller's own products ----
     public function index(Request $request)
     {
         $seller = $request->user()->seller;
@@ -35,7 +34,6 @@ class SellerOrderController extends Controller
         return response()->json($items);
     }
 
-    // ---- #38 View a single order item belonging to the seller ----
     public function show(Request $request, OrderItem $item)
     {
         $seller = $request->user()->seller;

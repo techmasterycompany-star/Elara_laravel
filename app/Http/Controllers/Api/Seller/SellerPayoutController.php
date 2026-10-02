@@ -10,7 +10,6 @@ use Illuminate\Support\Facades\DB;
 
 class SellerPayoutController extends Controller
 {
-    // ---- #39 Earnings summary (by period) ----
     public function earnings(Request $request)
     {
         $seller = $request->user()->seller;
@@ -50,7 +49,6 @@ class SellerPayoutController extends Controller
         ]);
     }
 
-    // ---- #39 Request a payout, validated against actual earned balance ----
     public function requestPayout(Request $request)
     {
         $seller = $request->user()->seller;
@@ -85,7 +83,6 @@ class SellerPayoutController extends Controller
         ], 201);
     }
 
-    // ---- #39 Payout history/status ----
     public function index(Request $request)
     {
         $seller = $request->user()->seller;
@@ -101,7 +98,6 @@ class SellerPayoutController extends Controller
         return response()->json($payouts);
     }
 
-    // ---- helper: completed order items minus prior payouts (pending + paid) ----
     private function earnedBalance(int $sellerId, bool $lock = false): float
     {
         $earned = OrderItem::where('seller_id', $sellerId)

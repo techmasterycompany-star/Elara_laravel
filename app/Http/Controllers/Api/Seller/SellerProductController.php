@@ -7,7 +7,6 @@ use Illuminate\Http\Request;
 
 class SellerProductController extends Controller
 {
-    // ---- #37 Seller-scoped product listing (own products, any status) ----
     public function index(Request $request)
     {
         $seller = $request->user()->seller;
@@ -33,7 +32,6 @@ class SellerProductController extends Controller
         return response()->json($products);
     }
 
-    // ---- #37 Own product performance: stock alerts + basic counts ----
     public function performance(Request $request)
     {
         $seller = $request->user()->seller;
