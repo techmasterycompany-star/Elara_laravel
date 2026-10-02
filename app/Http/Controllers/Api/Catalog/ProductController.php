@@ -133,7 +133,7 @@ class ProductController extends Controller
 
         if ($user->isSeller() && (! $user->seller || ! $user->seller->isApproved())) {
             return response()->json([
-                'message' => 'Your seller account must be approved before listing products.',
+                'message' => __('Your seller account must be approved before listing products.'),
             ], 403);
         }
 
@@ -172,7 +172,7 @@ class ProductController extends Controller
         });
 
         return response()->json([
-            'message' => 'Product created successfully.',
+            'message' => __('Product created successfully.'),
             'product' => $product->load('images'),
         ], 201);
     }
@@ -193,7 +193,7 @@ class ProductController extends Controller
                         return;
                     }
                     if ($product->sale_price !== null && $value <= $product->sale_price) {
-                        $fail('The price must be greater than the current sale price.');
+                        $fail(__('The price must be greater than the current sale price.'));
                     }
                 },
             ],
@@ -205,7 +205,7 @@ class ProductController extends Controller
                     }
                     $price = $request->input('price', $product->price);
                     if ($value >= $price) {
-                        $fail('The sale price must be less than the price.');
+                        $fail(__('The sale price must be less than the price.'));
                     }
                 },
             ],
@@ -220,7 +220,7 @@ class ProductController extends Controller
         $product->update($validated);
 
         return response()->json([
-            'message' => 'Product updated successfully.',
+            'message' => __('Product updated successfully.'),
             'product' => $product->fresh(),
         ]);
     }
@@ -238,13 +238,13 @@ class ProductController extends Controller
 
             if (! in_array($validated['status'], ['active', 'hidden'])) {
                 return response()->json([
-                    'message' => 'Sellers can only toggle between active and hidden.',
+                    'message' => __('Sellers can only toggle between active and hidden.'),
                 ], 403);
             }
 
             if (in_array($product->status, ['pending', 'rejected'])) {
                 return response()->json([
-                    'message' => 'This product cannot be updated until an admin reviews it.',
+                    'message' => __('This product cannot be updated until an admin reviews it.'),
                 ], 403);
             }
         }
@@ -252,7 +252,7 @@ class ProductController extends Controller
         $product->update(['status' => $validated['status']]);
 
         return response()->json([
-            'message' => 'Product status updated successfully.',
+            'message' => __('Product status updated successfully.'),
             'product' => $product->fresh(),
         ]);
     }
@@ -267,7 +267,7 @@ class ProductController extends Controller
 
         if ($validated['mode'] === 'set' && $validated['quantity'] < 0) {
             return response()->json([
-                'message' => 'Stock cannot be set to a negative number.',
+                'message' => __('Stock cannot be set to a negative number.'),
             ], 422);
         }
 
@@ -290,12 +290,12 @@ class ProductController extends Controller
 
         if ($updated === null) {
             return response()->json([
-                'message' => 'Adjustment would make stock negative.',
+                'message' => __('Adjustment would make stock negative.'),
             ], 422);
         }
 
         return response()->json([
-            'message' => 'Stock updated successfully.',
+            'message' => __('Stock updated successfully.'),
             'product' => $updated,
         ]);
     }
@@ -306,7 +306,7 @@ class ProductController extends Controller
         $product->delete();
 
         return response()->json([
-            'message' => 'Product deleted successfully.',
+            'message' => __('Product deleted successfully.'),
         ]);
     }
 
@@ -325,7 +325,7 @@ class ProductController extends Controller
 
         if ($existingCount + count($validated['images']) > self::MAX_IMAGES) {
             return response()->json([
-                'message' => 'A product can have at most ' . self::MAX_IMAGES . ' images.',
+                'message' => __('A product can have at most :max images.', ['max' => self::MAX_IMAGES]),
             ], 422);
         }
 
@@ -339,7 +339,7 @@ class ProductController extends Controller
         });
 
         return response()->json([
-            'message' => 'Images added successfully.',
+            'message' => __('Images added successfully.'),
             'images'  => $images,
         ], 201);
     }
@@ -356,7 +356,7 @@ class ProductController extends Controller
         $image->delete();
 
         return response()->json([
-            'message' => 'Image deleted successfully.',
+            'message' => __('Image deleted successfully.'),
         ]);
     }
 
@@ -378,7 +378,7 @@ class ProductController extends Controller
             return;
         }
 
-        abort(403, 'You do not have permission to modify this product.');
+        abort(403, __('You do not have permission to modify this product.'));
     }
 
     private function generateUniqueSlug(string $name, ?int $ignoreId = null): string

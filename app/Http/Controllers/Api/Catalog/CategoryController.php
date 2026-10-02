@@ -35,7 +35,7 @@ class CategoryController extends Controller
 
             if ($parent->parent_id !== null) {
                 return response()->json([
-                    'message' => 'Cannot create a sub-category under another sub-category. Only 2 levels are allowed.',
+                    'message' => __('Cannot create a sub-category under another sub-category. Only 2 levels are allowed.'),
                 ], 422);
             }
         }
@@ -61,7 +61,7 @@ class CategoryController extends Controller
         }
 
         return response()->json([
-            'message'  => 'Category created successfully.',
+            'message'  => __('Category created successfully.'),
             'category' => $category,
         ], 201);
     }
@@ -78,7 +78,7 @@ class CategoryController extends Controller
         if (array_key_exists('parent_id', $validated) && $validated['parent_id'] !== null) {
             if ((int) $validated['parent_id'] === $category->id) {
                 return response()->json([
-                    'message' => 'A category cannot be its own parent.',
+                    'message' => __('A category cannot be its own parent.'),
                 ], 422);
             }
 
@@ -86,13 +86,13 @@ class CategoryController extends Controller
 
             if ($newParent->parent_id !== null) {
                 return response()->json([
-                    'message' => 'Cannot move under a sub-category. Only 2 levels are allowed.',
+                    'message' => __('Cannot move under a sub-category. Only 2 levels are allowed.'),
                 ], 422);
             }
 
             if ($category->children()->exists()) {
                 return response()->json([
-                    'message' => 'Cannot make this category a sub-category because it already has sub-categories of its own.',
+                    'message' => __('Cannot make this category a sub-category because it already has sub-categories of its own.'),
                 ], 422);
             }
         }
@@ -110,7 +110,7 @@ class CategoryController extends Controller
         }
 
         return response()->json([
-            'message'  => 'Category updated successfully.',
+            'message'  => __('Category updated successfully.'),
             'category' => $category->fresh(),
         ]);
     }
@@ -120,7 +120,7 @@ class CategoryController extends Controller
         $category->delete();
 
         return response()->json([
-            'message' => 'Category deleted successfully.',
+            'message' => __('Category deleted successfully.'),
         ]);
     }
 }
