@@ -29,7 +29,7 @@ class ProfileController extends Controller
 
         $validated = $request->validate([
             'name'   => ['sometimes', 'string', 'max:255'],
-            'avatar' => ['sometimes', 'image', 'max:2048'], 
+            'avatar' => ['sometimes', 'image', 'max:2048'],
         ]);
 
         if (isset($validated['name'])) {
@@ -53,7 +53,6 @@ class ProfileController extends Controller
         ]);
     }
 
-   
     public function updatePassword(Request $request)
     {
         $user = $request->user();
@@ -83,6 +82,27 @@ class ProfileController extends Controller
 
         return response()->json([
             'message' => 'Password updated successfully. Other devices have been logged out.',
+        ]);
+    }
+
+    /**
+     * Opt in/out of promotional notifications (#43).
+     */
+    public function updateNotifications(Request $request)
+    {
+        $validated = $request->validate([
+            'promo_notifications' => ['required', 'boolean'],
+        ]);
+
+        $user = $request->user();
+
+        $user->forceFill([
+            'promo_notifications' => $request->boolean('promo_notifications'),
+        ])->save();
+
+        return response()->json([
+            'message'             => 'Notification preferences updated.',
+            'promo_notifications' => (bool) $user->promo_notifications,
         ]);
     }
 }

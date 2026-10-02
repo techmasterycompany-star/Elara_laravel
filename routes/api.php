@@ -91,6 +91,7 @@ Route::middleware('auth:sanctum')->prefix('profile')->group(function () {
     Route::get('/', [ProfileController::class, 'show']);
     Route::post('/', [ProfileController::class, 'update']);
     Route::put('/password', [ProfileController::class, 'updatePassword']);
+    Route::put('/notifications', [ProfileController::class, 'updateNotifications']);
 });
 
 /*
