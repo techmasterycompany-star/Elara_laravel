@@ -23,10 +23,12 @@ class User extends Authenticatable implements MustVerifyEmail
     'wallet_balance',
     'stripe_customer_id',   
     'password',
+    'promo_notifications',
     'role',
     'provider',
     'provider_id',
     'is_active',
+    
 ];
 
 
@@ -39,9 +41,10 @@ class User extends Authenticatable implements MustVerifyEmail
     'email_verified_at' => 'datetime',
     'is_active'          => 'boolean',
     'password'           => 'hashed',
+    'promo_notifications' => 'boolean',
     'wallet_balance'     => 'decimal:2',   
 ];
-    // ---- Relationships ----
+
 
     public function addresses(): HasMany
     {

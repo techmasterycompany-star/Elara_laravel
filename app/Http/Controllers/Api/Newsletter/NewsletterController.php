@@ -14,8 +14,7 @@ class NewsletterController extends Controller
             'email' => ['required', 'email'],
         ]);
 
-        $user = $request->user(); 
-
+        $user = $request->user('sanctum');  
         $subscriber = NewsletterSubscriber::where('email', $validated['email'])->first();
 
         if ($subscriber && $subscriber->isActive()) {

@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use App\Services\PaymentService;
 
 class RazorpayGateway implements PaymentGateway
 {
@@ -83,62 +84,64 @@ public function charge(Order $order, ?string $savedPaymentMethodId = null): Paym
     );
 }
 
-public function handleWebhook(Request $request): void
-{
-    $payload   = $request->getContent();
-    $signature = $request->header('X-Razorpay-Signature');
+    public function handleWebhook(Request $request): void
+    {
+        $payload   = $request->getContent();
+        $signature = $request->header('X-Razorpay-Signature');
 
-    if (! $this->verifySignature($payload, $signature)) {
-        Log::warning('Razorpay webhook signature verification failed.');
-        abort(400, 'Invalid webhook signature.');
+        if (! $this->verifySignature($payload, $signature)) {
+            Log::warning('Razorpay webhook signature verification failed.');
+            abort(400, 'Invalid webhook signature.');
+        }
+
+        $event = json_decode($payload, true);
+
+        if (($event['event'] ?? null) !== 'payment.captured') {
+            return;
+        }
+
+        $paymentEntity = $event['payload']['payment']['entity'] ?? null;
+
+        if (! $paymentEntity) {
+            Log::warning('Razorpay webhook missing payment entity.', ['event' => $event]);
+            return;
+        }
+
+        $order = Payment::where('gateway', 'razorpay')
+            ->whereIn('gateway_transaction_id', array_filter([
+                $paymentEntity['order_id'] ?? null,
+                $paymentEntity['id'] ?? null,
+            ]))
+            ->first()?->order;
+
+        if (! $order && ! empty($paymentEntity['notes']['order_id'])) {
+            $order = Order::find($paymentEntity['notes']['order_id']);
+        }
+
+        if (! $order) {
+            Log::warning('Razorpay webhook could not be matched to an order.', ['payment_id' => $paymentEntity['id'] ?? null]);
+            return;
+        }
+
+        app(PaymentService::class)->recordPaid($order, 'razorpay', $paymentEntity['id']);
     }
-
-    $event = json_decode($payload, true);
-
-    if (($event['event'] ?? null) !== 'payment.captured') {
-        return; // مهتمين بالحدث ده بس دلوقتي
-    }
-
-    $paymentEntity = $event['payload']['payment']['entity'] ?? null;
-    $orderId       = $paymentEntity['notes']['order_id'] ?? null;
-
-    if (! $paymentEntity || ! $orderId) {
-        Log::warning('Razorpay webhook missing order identifiers.', ['event' => $event]);
-        return;
-    }
-
-    $order = Order::find($orderId);
-
-    if (! $order) {
-        Log::warning('Razorpay webhook references a non-existent order.', ['order_id' => $orderId]);
-        return;
-    }
-
-    if (Payment::where('order_id', $order->id)->where('status', 'paid')->exists()) {
-        return;
-    }
-
-    DB::transaction(function () use ($order, $paymentEntity) {
-        Payment::updateOrCreate(
-            ['order_id' => $order->id, 'gateway' => 'razorpay'],
-            [
-                'gateway_transaction_id' => $paymentEntity['id'],
-                'amount'                 => $order->total,
-                'status'                 => 'paid',
-            ]
-        );
-
-        $order->update(['status' => 'paid']);
-    });
-}
 
 private function verifySignature(string $payload, ?string $signature): bool
 {
+    $secret = config('services.razorpay.webhook_secret');
+
+    // A missing secret would let anyone sign a payload with an empty key.
+    if (! is_string($secret) || $secret === '') {
+        Log::critical('Razorpay webhook secret is not configured; rejecting webhook.');
+
+        return false;
+    }
+
     if (! $signature) {
         return false;
     }
 
-    $expected = hash_hmac('sha256', $payload, config('services.razorpay.webhook_secret'));
+    $expected = hash_hmac('sha256', $payload, $secret);
 
     return hash_equals($expected, $signature);
 }

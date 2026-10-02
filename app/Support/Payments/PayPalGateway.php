@@ -8,6 +8,7 @@ use App\Models\Payment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use App\Services\PaymentService;
 use Illuminate\Support\Facades\DB;
 
 class PayPalGateway implements PaymentGateway
@@ -139,33 +140,44 @@ public function handleWebhook(Request $request): void
     $this->captureAndRecord($order, $paypalOrderId);
 }
 
-private function captureAndRecord(Order $order, string $paypalOrderId): void
-{
-    $accessToken = $this->getAccessToken();
+    private function captureAndRecord(Order $order, string $paypalOrderId): void
+    {
+        $token = $this->getAccessToken();
 
-    $response = Http::withToken($accessToken)
-        ->post($this->baseUrl() . "/v2/checkout/orders/{$paypalOrderId}/capture");
+        DB::transaction(function () use ($order, $paypalOrderId, $token) {
+            $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
 
-    if ($response->failed()) {
-        Log::error('PayPal capture failed.', ['order_id' => $order->id, 'body' => $response->body()]);
-        return;
+            if (Payment::where('order_id', $locked->id)->where('status', 'paid')->exists()) {
+                return;
+            }
+
+            $response = Http::withToken($token)
+                ->post($this->baseUrl() . "/v2/checkout/orders/{$paypalOrderId}/capture");
+
+            if ($response->status() === 422 && $response->json('details.0.issue') === 'ORDER_ALREADY_CAPTURED') {
+                $response = Http::withToken($token)
+                    ->get($this->baseUrl() . "/v2/checkout/orders/{$paypalOrderId}");
+            }
+
+            if ($response->failed()) {
+                Log::error('PayPal capture failed.', ['order_id' => $locked->id, 'body' => $response->body()]);
+
+                abort(500, 'PayPal capture failed.');
+            }
+
+            if ($response->json('status') !== 'COMPLETED') {
+                Log::warning('PayPal order is not COMPLETED after capture.', [
+                    'order_id' => $locked->id,
+                    'status'   => $response->json('status'),
+                ]);
+                return;
+            }
+
+            $captureId = $response->json('purchase_units.0.payments.captures.0.id') ?? $paypalOrderId;
+
+            app(PaymentService::class)->recordPaid($locked, 'paypal', $captureId);
+        });
     }
-
-    $captureId = $response->json('purchase_units.0.payments.captures.0.id') ?? $paypalOrderId;
-
-    DB::transaction(function () use ($order, $captureId) {
-        Payment::updateOrCreate(
-            ['order_id' => $order->id, 'gateway' => 'paypal'],
-            [
-                'gateway_transaction_id' => $captureId,
-                'amount'                 => $order->total,
-                'status'                 => 'paid',
-            ]
-        );
-
-        $order->update(['status' => 'paid']);
-    });
-}
 
 private function verifyWebhookSignature(Request $request, string $payload): bool
 {

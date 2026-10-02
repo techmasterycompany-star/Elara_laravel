@@ -17,10 +17,7 @@ class ProductController extends Controller
 {
     private const MAX_IMAGES = 5;
 
-    /**
-     * Public shop listing: search + filter + sort in one endpoint.
-     * GET /products?search=&category_id=&min_price=&max_price=&in_stock=&min_rating=&sort=&per_page=
-     */
+   
     public function index(Request $request)
     {
         $rules = [
@@ -34,7 +31,7 @@ class ProductController extends Controller
             'per_page'    => ['nullable', 'integer', 'min:1', 'max:50'],
         ];
 
-        // gte:min_price only makes sense when min_price was actually sent
+        
         if ($request->filled('min_price')) {
             $rules['max_price'][] = 'gte:min_price';
         }
@@ -43,7 +40,7 @@ class ProductController extends Controller
 
         $query = Product::with(['category', 'images'])->active();
 
-        // ---- Search (name only for now) ----
+
         $search = isset($validated['search']) ? trim($validated['search']) : null;
 
         if ($search !== null && $search !== '') {
@@ -53,10 +50,10 @@ class ProductController extends Controller
             $search = null;
         }
 
-        // ---- Filters ----
+        
         if (! empty($validated['category_id'])) {
-            // Include direct sub-categories (nesting is capped at 2 levels)
-            $categoryIds = Category::where('id', $validated['category_id'])
+           
+        $categoryIds = Category::where('id', $validated['category_id'])
                 ->orWhere('parent_id', $validated['category_id'])
                 ->pluck('id');
 
@@ -82,7 +79,7 @@ class ProductController extends Controller
                 ->having('reviews_avg_rating', '>=', $validated['min_rating']);
         }
 
-        // ---- Sorting ----
+        
         $sort = $validated['sort'] ?? null;
 
         if ($sort === 'price_asc') {
@@ -90,7 +87,7 @@ class ProductController extends Controller
         } elseif ($sort === 'price_desc') {
             $query->orderByRaw('COALESCE(sale_price, price) desc');
         } else {
-            // Default: relevance first when searching, then newest
+
             if ($search !== null) {
                 $query->orderByRaw(
                     'CASE
@@ -113,7 +110,7 @@ class ProductController extends Controller
 
     public function show(Request $request, Product $product)
     {
-        // Public route (no auth middleware), so resolve the sanctum guard explicitly
+
         $user = $request->user('sanctum');
 
         $isAdmin = $user && $user->isAdmin();
@@ -136,7 +133,7 @@ class ProductController extends Controller
 
         if ($user->isSeller() && (! $user->seller || ! $user->seller->isApproved())) {
             return response()->json([
-                'message' => 'Your seller account must be approved before listing products.',
+                'message' => __('Your seller account must be approved before listing products.'),
             ], 403);
         }
 
@@ -175,7 +172,7 @@ class ProductController extends Controller
         });
 
         return response()->json([
-            'message' => 'Product created successfully.',
+            'message' => __('Product created successfully.'),
             'product' => $product->load('images'),
         ], 201);
     }
@@ -191,12 +188,12 @@ class ProductController extends Controller
             'price'       => [
                 'sometimes', 'numeric', 'min:0',
                 function ($attribute, $value, $fail) use ($request, $product) {
-                    // If sale_price isn't being changed, the new price must still be above it
-                    if ($request->has('sale_price')) {
+
+                if ($request->has('sale_price')) {
                         return;
                     }
                     if ($product->sale_price !== null && $value <= $product->sale_price) {
-                        $fail('The price must be greater than the current sale price.');
+                        $fail(__('The price must be greater than the current sale price.'));
                     }
                 },
             ],
@@ -208,14 +205,14 @@ class ProductController extends Controller
                     }
                     $price = $request->input('price', $product->price);
                     if ($value >= $price) {
-                        $fail('The sale price must be less than the price.');
+                        $fail(__('The sale price must be less than the price.'));
                     }
                 },
             ],
             'sku'         => ['sometimes', 'string', 'max:100', 'unique:products,sku,' . $product->id],
         ]);
 
-        // Only regenerate the slug if the name actually changed
+
         if (isset($validated['name']) && $validated['name'] !== $product->name) {
             $validated['slug'] = $this->generateUniqueSlug($validated['name'], $product->id);
         }
@@ -223,7 +220,7 @@ class ProductController extends Controller
         $product->update($validated);
 
         return response()->json([
-            'message' => 'Product updated successfully.',
+            'message' => __('Product updated successfully.'),
             'product' => $product->fresh(),
         ]);
     }
@@ -241,13 +238,13 @@ class ProductController extends Controller
 
             if (! in_array($validated['status'], ['active', 'hidden'])) {
                 return response()->json([
-                    'message' => 'Sellers can only toggle between active and hidden.',
+                    'message' => __('Sellers can only toggle between active and hidden.'),
                 ], 403);
             }
 
             if (in_array($product->status, ['pending', 'rejected'])) {
                 return response()->json([
-                    'message' => 'This product cannot be updated until an admin reviews it.',
+                    'message' => __('This product cannot be updated until an admin reviews it.'),
                 ], 403);
             }
         }
@@ -255,11 +252,53 @@ class ProductController extends Controller
         $product->update(['status' => $validated['status']]);
 
         return response()->json([
-            'message' => 'Product status updated successfully.',
+            'message' => __('Product status updated successfully.'),
             'product' => $product->fresh(),
         ]);
     }
+    public function updateStock(Request $request, Product $product)
+    {
+        $this->authorizeOwnership($request, $product);
 
+        $validated = $request->validate([
+            'mode'     => ['required', 'in:set,adjust'],
+            'quantity' => ['required', 'integer', 'min:-100000', 'max:100000'],
+        ]);
+
+        if ($validated['mode'] === 'set' && $validated['quantity'] < 0) {
+            return response()->json([
+                'message' => __('Stock cannot be set to a negative number.'),
+            ], 422);
+        }
+
+        $updated = DB::transaction(function () use ($product, $validated) {
+            $locked = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+
+            $newStock = $validated['mode'] === 'set'
+                ? $validated['quantity']
+                : $locked->stock + $validated['quantity'];
+
+            if ($newStock < 0) {
+                return null;
+            }
+
+            $locked->stock = $newStock;
+            $locked->save();
+
+            return $locked;
+        });
+
+        if ($updated === null) {
+            return response()->json([
+                'message' => __('Adjustment would make stock negative.'),
+            ], 422);
+        }
+
+        return response()->json([
+            'message' => __('Stock updated successfully.'),
+            'product' => $updated,
+        ]);
+    }
     public function destroy(Request $request, Product $product)
     {
         $this->authorizeOwnership($request, $product);
@@ -267,11 +306,11 @@ class ProductController extends Controller
         $product->delete();
 
         return response()->json([
-            'message' => 'Product deleted successfully.',
+            'message' => __('Product deleted successfully.'),
         ]);
     }
 
-    // ---- Product Images ----
+
 
     public function storeImage(Request $request, Product $product)
     {
@@ -286,7 +325,7 @@ class ProductController extends Controller
 
         if ($existingCount + count($validated['images']) > self::MAX_IMAGES) {
             return response()->json([
-                'message' => 'A product can have at most ' . self::MAX_IMAGES . ' images.',
+                'message' => __('A product can have at most :max images.', ['max' => self::MAX_IMAGES]),
             ], 422);
         }
 
@@ -300,7 +339,7 @@ class ProductController extends Controller
         });
 
         return response()->json([
-            'message' => 'Images added successfully.',
+            'message' => __('Images added successfully.'),
             'images'  => $images,
         ], 201);
     }
@@ -317,16 +356,16 @@ class ProductController extends Controller
         $image->delete();
 
         return response()->json([
-            'message' => 'Image deleted successfully.',
+            'message' => __('Image deleted successfully.'),
         ]);
     }
 
-    // ---- Helpers ----
+
 
     private function ownsProduct(User $user, Product $product): bool
     {
-        // The seller record must exist, otherwise null === null would match admin-owned products
-        return $user->isSeller()
+
+    return $user->isSeller()
             && $user->seller !== null
             && $product->seller_id === $user->seller->id;
     }
@@ -339,7 +378,7 @@ class ProductController extends Controller
             return;
         }
 
-        abort(403, 'You do not have permission to modify this product.');
+        abort(403, __('You do not have permission to modify this product.'));
     }
 
     private function generateUniqueSlug(string $name, ?int $ignoreId = null): string

@@ -106,11 +106,9 @@ class CartController extends Controller
 
         $subtotal = $validItems->sum(fn ($item) => $item->lineTotal());
 
-        // ---- خصم تلقائي حسب الكمية ----
         $tierDiscount = collect(self::DISCOUNT_TIERS)
             ->first(fn ($tier) => $subtotal >= $tier['min_subtotal'])['discount'] ?? 0;
 
-        // ---- خصم الكوبون (لو متطبق) ----
         $couponDiscount = 0;
         $couponRemoved  = null;
         $coupon         = $cart->coupon;
@@ -119,14 +117,12 @@ class CartController extends Controller
             if ($coupon->isValid()) {
                 $couponDiscount = $coupon->calculateDiscount((float) $subtotal);
             } else {
-                // الكوبون كان متطبق بس بقى غير صالح (خلصت صلاحيته/استخداماته) — نفكه تلقائي
                 $reason = $coupon->isExpired() ? 'expired' : 'usage_limit_reached';
                 $cart->update(['coupon_id' => null]);
                 $couponRemoved = ['code' => $coupon->code, 'reason' => $reason];
             }
         }
 
-        // ---- الأعلى بس بين الاتنين (best-of) ----
         if ($couponDiscount > 0 && $couponDiscount >= $tierDiscount) {
             $discount       = $couponDiscount;
             $discountSource = 'coupon';
@@ -286,8 +282,7 @@ class CartController extends Controller
     private function authorizeOwnership(Request $request, CartItem $item): void
     {
         $cart = $item->cart;
-        $user = $request->user();
-
+        $user = $request->user('sanctum');  
         if ($user) {
             if ($cart->user_id !== $user->id) {
                 abort(403, 'You do not have permission to modify this cart item.');

@@ -14,6 +14,11 @@ class SellerController extends Controller
     {
         $user = $request->user();
 
+         if ($user->isAdmin()) {
+        return response()->json([
+            'message' => 'Admins cannot register as sellers.',
+        ], 403);
+    }
         if ($user->seller) {
             return response()->json([
                 'message' => 'You already have a seller profile.',
@@ -74,7 +79,7 @@ class SellerController extends Controller
         ]);
 
         if (isset($validated['store_name']) && $validated['store_name'] !== $seller->store_name) {
-            $validated['store_slug'] = $this->generateUniqueSlug($validated['store_name']);
+        $validated['store_slug'] = $this->generateUniqueSlug($validated['store_name'], $seller->id);  
         }
 
         $seller->update($validated);
@@ -86,17 +91,21 @@ class SellerController extends Controller
     }
 
     
-    private function generateUniqueSlug(string $storeName): string
-    {
-        $slug = Str::slug($storeName);
-        $originalSlug = $slug;
-        $counter = 1;
+    private function generateUniqueSlug(string $storeName, ?int $ignoreId = null): string
+{
+    $slug = Str::slug($storeName);
+    $originalSlug = $slug;
+    $counter = 1;
 
-        while (Seller::where('store_slug', $slug)->exists()) {
-            $slug = "{$originalSlug}-{$counter}";
-            $counter++;
-        }
-
-        return $slug;
+    while (
+        Seller::where('store_slug', $slug)
+            ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
+            ->exists()
+    ) {
+        $slug = "{$originalSlug}-{$counter}";
+        $counter++;
     }
+
+    return $slug;
+}
 }

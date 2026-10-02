@@ -7,15 +7,10 @@ use Illuminate\Http\Request;
 
 trait AuthorizesOrderOwnership
 {
-    /**
-     * يوزر مسجل: لازم يكون صاحب الأوردر (user_id بتاعه).
-     * ضيف: لازم يبعت order_number + guest_email متطابقين مع اللي مسجلين على الأوردر -
-     * الاتنين مع بعض عشان محدش يقدر يخمن، لأن order_number أصعب بكتير من الـ ID المتسلسل.
-     */
+  
     protected function authorizeOrderOwnership(Request $request, Order $order): void
     {
-        $user = $request->user();
-
+       $user = $request->user('sanctum');
         if ($order->user_id) {
             if (! $user || $order->user_id !== $user->id) {
                 abort(403, 'This order does not belong to you.');

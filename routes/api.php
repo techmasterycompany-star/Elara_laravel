@@ -91,6 +91,7 @@ Route::middleware('auth:sanctum')->prefix('profile')->group(function () {
     Route::get('/', [ProfileController::class, 'show']);
     Route::post('/', [ProfileController::class, 'update']);
     Route::put('/password', [ProfileController::class, 'updatePassword']);
+    Route::put('/notifications', [ProfileController::class, 'updateNotifications']);
 });
 
 /*
@@ -110,7 +111,7 @@ Route::middleware('auth:sanctum')->prefix('addresses')->group(function () {
 | User Payment Methods (Saved Cards)
 |--------------------------------------------------------------------------
 */
-Route::middleware('auth:sanctum')->prefix('payment-methods')->group(function () {
+Route::middleware(['auth:sanctum', 'verified.api'])->prefix('payment-methods')->group(function () {
     Route::get('/', [PaymentMethodController::class, 'index']);
     Route::post('/', [PaymentMethodController::class, 'store']);
     Route::delete('/{paymentMethod}', [PaymentMethodController::class, 'destroy']);
@@ -125,7 +126,7 @@ Route::middleware('auth:sanctum')->prefix('payment-methods')->group(function () 
 Route::middleware('auth:sanctum')->prefix('wishlist')->group(function () {
     Route::get('/', [WishlistController::class, 'index']);
     Route::post('/', [WishlistController::class, 'store']);
-    Route::delete('/{product}', [WishlistController::class, 'destroy']);
+    Route::delete('/{product}', [WishlistController::class, 'destroy'])->withTrashed();
 });
 
 /*
@@ -163,6 +164,7 @@ Route::middleware(['auth:sanctum', 'role:admin,seller'])->prefix('products')->gr
     Route::post('/', [ProductController::class, 'store']);
     Route::put('/{product}', [ProductController::class, 'update']);
     Route::patch('/{product}/status', [ProductController::class, 'updateStatus']);
+    Route::patch('/{product}/stock', [ProductController::class, 'updateStock']);
     Route::delete('/{product}', [ProductController::class, 'destroy']);
     Route::post('/{product}/images', [ProductController::class, 'storeImage']);
     Route::delete('/{product}/images/{image}', [ProductController::class, 'destroyImage']);
@@ -209,8 +211,12 @@ Route::prefix('cart')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::post('/orders', [OrderController::class, 'store']);
-Route::get('/orders/{order}', [OrderController::class, 'show']);
-Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
+
+Route::middleware('throttle:20,1')->group(function () {
+    Route::get('/orders/{order}', [OrderController::class, 'show']);
+    Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
+    Route::post('/orders/{order}/pay', [PaymentController::class, 'pay']);
+});
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/orders', [OrderController::class, 'index']);
@@ -226,7 +232,6 @@ Route::middleware(['auth:sanctum', 'role:admin,seller'])->group(function () {
 | Payments & Webhooks
 |--------------------------------------------------------------------------
 */
-Route::post('/orders/{order}/pay', [PaymentController::class, 'pay']);
 
 Route::middleware(['auth:sanctum', 'role:admin'])
     ->post('/orders/{order}/confirm-cash-payment', [PaymentController::class, 'confirmCashPayment']);
@@ -240,8 +245,8 @@ Route::post('/webhooks/razorpay', [WebhookController::class, 'razorpay']);
 | Seller
 |--------------------------------------------------------------------------
 */
-Route::middleware('auth:sanctum')->prefix('seller')->group(function () {
-    Route::post('/register', [SellerController::class, 'register']); 
+Route::middleware(['auth:sanctum', 'verified.api'])->prefix('seller')->group(function () {
+    Route::post('/register', [SellerController::class, 'register']);
 });
 
 Route::middleware(['auth:sanctum', 'role:seller'])->prefix('seller')->group(function () {
@@ -253,7 +258,7 @@ Route::middleware(['auth:sanctum', 'role:seller'])->prefix('seller')->group(func
     Route::get('/orders/{item}', [SellerOrderController::class, 'show']);
     Route::get('/earnings', [SellerPayoutController::class, 'earnings']);
     Route::get('/payouts', [SellerPayoutController::class, 'index']);
-    Route::post('/payouts', [SellerPayoutController::class, 'requestPayout']);
+    Route::post('/payouts', [SellerPayoutController::class, 'requestPayout'])->middleware('verified.api');
 });
 
 /*
@@ -310,6 +315,12 @@ Route::middleware(['auth:sanctum', 'role:admin'])->patch('/admin/sellers/{seller
 
 // ---- #39 Admin: mark a seller payout as paid ----
 Route::middleware(['auth:sanctum', 'role:admin'])->patch('/admin/payouts/{payout}/mark-paid', [AdminPayoutController::class, 'markPaid']);
+
+/*
+|--------------------------------------------------------------------------
+| Newsletter
+|--------------------------------------------------------------------------
+*/
 Route::prefix('newsletter')->group(function () {
     Route::post('/subscribe', [NewsletterController::class, 'subscribe']);
     Route::get('/unsubscribe/{token}', [NewsletterController::class, 'unsubscribe']);

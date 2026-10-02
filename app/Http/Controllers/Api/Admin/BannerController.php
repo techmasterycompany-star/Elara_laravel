@@ -3,12 +3,13 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SendPromoNotification;
 use App\Models\Banner;
 use Illuminate\Http\Request;
 
 class BannerController extends Controller
 {
-  
+    
     public function index()
     {
         $banners = Banner::active()->get();
@@ -27,7 +28,6 @@ class BannerController extends Controller
         ]);
     }
 
-    
     public function store(Request $request)
     {
         $validated = $request->validate([
@@ -46,13 +46,14 @@ class BannerController extends Controller
             'image_path' => $request->file('image')->store('banners', 'public'),
         ]);
 
+        $this->notifyCustomers($banner);
+
         return response()->json([
             'message' => 'Banner created successfully.',
-            'banner'  => $banner,
+            'banner'  => $banner->fresh(),
         ], 201);
     }
 
-   
     public function update(Request $request, Banner $banner)
     {
         $validated = $request->validate([
@@ -73,7 +74,6 @@ class BannerController extends Controller
         ]);
     }
 
-   
     public function destroy(Banner $banner)
     {
         $banner->delete();
@@ -83,10 +83,13 @@ class BannerController extends Controller
         ]);
     }
 
-   
     public function toggleActive(Banner $banner)
     {
         $banner->update(['is_active' => ! $banner->is_active]);
+
+        if ($banner->is_active) {
+            $this->notifyCustomers($banner);
+        }
 
         return response()->json([
             'message' => $banner->is_active ? 'Banner activated.' : 'Banner deactivated.',
@@ -94,7 +97,6 @@ class BannerController extends Controller
         ]);
     }
 
-    
     public function reorder(Request $request)
     {
         $validated = $request->validate([
@@ -110,5 +112,15 @@ class BannerController extends Controller
             'message' => 'Banners reordered successfully.',
             'banners' => Banner::orderBy('position')->get(),
         ]);
+    }
+
+    
+    private function notifyCustomers(Banner $banner): void
+    {
+        try {
+            SendPromoNotification::dispatch($banner->id);
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 }

@@ -35,24 +35,24 @@ class CategoryController extends Controller
 
             if ($parent->parent_id !== null) {
                 return response()->json([
-                    'message' => 'Cannot create a sub-category under another sub-category. Only 2 levels are allowed.',
+                    'message' => __('Cannot create a sub-category under another sub-category. Only 2 levels are allowed.'),
                 ], 422);
             }
         }
 
-        $slug = Str::slug($validated['name']);
-        $originalSlug = $slug;
-        $counter = 1;
+        // $slug = Str::slug($validated['name']);
+        // $originalSlug = $slug;
+        // $counter = 1;
 
-        while (Category::where('slug', $slug)->exists()) {
-            $slug = "{$originalSlug}-{$counter}";
-            $counter++;
-        }
+        // while (Category::where('slug', $slug)->exists()) {
+        //     $slug = "{$originalSlug}-{$counter}";
+        //     $counter++;
+        // }
 
-        $category = Category::create([
-            ...$validated,
-            'slug' => $slug,
-        ]);
+       $category = Category::create([
+    ...$validated,
+    'slug' => $this->generateUniqueSlug($validated['name']),
+]);
 
         if ($request->hasFile('image')) {
             $category->update([
@@ -61,7 +61,7 @@ class CategoryController extends Controller
         }
 
         return response()->json([
-            'message'  => 'Category created successfully.',
+            'message'  => __('Category created successfully.'),
             'category' => $category,
         ], 201);
     }
@@ -78,7 +78,7 @@ class CategoryController extends Controller
         if (array_key_exists('parent_id', $validated) && $validated['parent_id'] !== null) {
             if ((int) $validated['parent_id'] === $category->id) {
                 return response()->json([
-                    'message' => 'A category cannot be its own parent.',
+                    'message' => __('A category cannot be its own parent.'),
                 ], 422);
             }
 
@@ -86,20 +86,20 @@ class CategoryController extends Controller
 
             if ($newParent->parent_id !== null) {
                 return response()->json([
-                    'message' => 'Cannot move under a sub-category. Only 2 levels are allowed.',
+                    'message' => __('Cannot move under a sub-category. Only 2 levels are allowed.'),
                 ], 422);
             }
 
             if ($category->children()->exists()) {
                 return response()->json([
-                    'message' => 'Cannot make this category a sub-category because it already has sub-categories of its own.',
+                    'message' => __('Cannot make this category a sub-category because it already has sub-categories of its own.'),
                 ], 422);
             }
         }
 
-        if (isset($validated['name'])) {
-            $validated['slug'] = Str::slug($validated['name']);
-        }
+       if (isset($validated['name'])) {
+    $validated['slug'] = $this->generateUniqueSlug($validated['name'], $category->id);
+}
 
         $category->update($validated);
 
@@ -110,17 +110,38 @@ class CategoryController extends Controller
         }
 
         return response()->json([
-            'message'  => 'Category updated successfully.',
+            'message'  => __('Category updated successfully.'),
             'category' => $category->fresh(),
         ]);
     }
 
     public function destroy(Category $category)
-    {
-        $category->delete();
-
+{
+    if ($category->products()->withTrashed()->exists()) {
         return response()->json([
-            'message' => 'Category deleted successfully.',
-        ]);
+            'message' => __('Cannot delete a category that still has products. Move or delete them first.'),
+        ], 422);
     }
+
+    $category->delete();
+
+    return response()->json([
+        'message' => __('Category deleted successfully.'),
+    ]);
+}
+private function generateUniqueSlug(string $name, ?int $ignoreId = null): string
+{
+    $slug = Str::slug($name);
+    $originalSlug = $slug;
+    $counter = 1;
+
+    while (Category::where('slug', $slug)
+        ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
+        ->exists()) {
+        $slug = "{$originalSlug}-{$counter}";
+        $counter++;
+    }
+
+    return $slug;
+}
 }
