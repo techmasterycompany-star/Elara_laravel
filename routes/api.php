@@ -25,9 +25,12 @@ use App\Http\Controllers\Api\Admin\AdminOrderController;
 use App\Http\Controllers\Api\Admin\AdminCouponController;
 use App\Http\Controllers\Api\Admin\AdminSellerController;
 use App\Http\Controllers\Api\Admin\AdminPayoutController;
+use App\Http\Controllers\Api\Admin\AdminNewsletterController;
 use App\Http\Controllers\Api\Admin\BannerController;
 use App\Http\Controllers\Api\Admin\WalletController;
 use App\Http\Controllers\Api\User\LoyaltyController;
+use App\Http\Controllers\Api\Newsletter\NewsletterController;
+
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -240,7 +243,10 @@ Route::post('/webhooks/razorpay', [WebhookController::class, 'razorpay']);
 |--------------------------------------------------------------------------
 */
 Route::middleware('auth:sanctum')->prefix('seller')->group(function () {
-    Route::post('/register', [SellerController::class, 'register']);
+    Route::post('/register', [SellerController::class, 'register']); 
+});
+
+Route::middleware(['auth:sanctum', 'role:seller'])->prefix('seller')->group(function () {
     Route::get('/profile', [SellerController::class, 'show']);
     Route::put('/profile', [SellerController::class, 'update']);
     Route::get('/products', [SellerProductController::class, 'index']);
@@ -306,3 +312,11 @@ Route::middleware(['auth:sanctum', 'role:admin'])->patch('/admin/sellers/{seller
 
 // ---- #39 Admin: mark a seller payout as paid ----
 Route::middleware(['auth:sanctum', 'role:admin'])->patch('/admin/payouts/{payout}/mark-paid', [AdminPayoutController::class, 'markPaid']);
+Route::prefix('newsletter')->group(function () {
+    Route::post('/subscribe', [NewsletterController::class, 'subscribe']);
+    Route::get('/unsubscribe/{token}', [NewsletterController::class, 'unsubscribe']);
+});
+Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin/newsletter')->group(function () {
+    Route::get('/subscribers', [AdminNewsletterController::class, 'subscribers']);
+    Route::post('/send', [AdminNewsletterController::class, 'sendCampaign']);
+});
