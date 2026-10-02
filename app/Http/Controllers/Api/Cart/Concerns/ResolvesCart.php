@@ -9,7 +9,7 @@ trait ResolvesCart
 {
     protected function resolveCart(Request $request, bool $createIfMissing): ?Cart
     {
-        $user = $request->user();
+        $user = $request->user('sanctum');
 
         if ($user) {
             return $createIfMissing
