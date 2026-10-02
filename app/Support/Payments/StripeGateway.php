@@ -15,6 +15,7 @@ use Stripe\Webhook;
 use Stripe\Exception\SignatureVerificationException;
 use Stripe\Exception\CardException;
 use Stripe\Exception\ApiErrorException;
+use App\Services\PaymentService;
 use UnexpectedValueException;
 
 class StripeGateway implements PaymentGateway
@@ -26,10 +27,7 @@ class StripeGateway implements PaymentGateway
         $this->client = new StripeClient(config('services.stripe.secret'));
     }
 
-    /**
-     * لو مفيش بطاقة محفوظة متبعتة: نفس تدفق الـ Checkout القديم (redirect لصفحة Stripe).
-     * لو فيه بطاقة محفوظة (savedPaymentMethodId): دفع فوري من غير أي redirect.
-     */
+   
     public function charge(Order $order, ?string $savedPaymentMethodId = null): PaymentResult
     {
         if (! $savedPaymentMethodId) {
@@ -170,8 +168,14 @@ class StripeGateway implements PaymentGateway
             abort(400, 'Invalid webhook signature.');
         }
 
-        if ($event->type === 'checkout.session.completed') {
+               if ($event->type === 'checkout.session.completed') {
             $session = $event->data->object;
+
+            // Only confirm when Stripe says the money was actually collected
+            if (($session->payment_status ?? null) !== 'paid') {
+                return;
+            }
+
             $orderId = $session->metadata->order_id ?? null;
 
             if (! $orderId) {
@@ -186,28 +190,8 @@ class StripeGateway implements PaymentGateway
                 return;
             }
 
-            $existingPayment = Payment::where('order_id', $order->id)
-                ->where('status', 'paid')
-                ->first();
-
-            if ($existingPayment) {
-                return;
-            }
-
-            DB::transaction(function () use ($order, $session) {
-                Payment::updateOrCreate(
-                    ['order_id' => $order->id, 'gateway' => 'stripe'],
-                    [
-                        'gateway_transaction_id' => $session->payment_intent ?? $session->id,
-                        'amount'                 => $order->total,
-                        'status'                 => 'paid',
-                    ]
-                );
-
-                $order->update(['status' => 'paid']);
-            });
+            app(PaymentService::class)->recordPaid($order, 'stripe', $session->payment_intent ?? $session->id);
         }
-
         if ($event->type === 'setup_intent.succeeded') {
             $setupIntent = $event->data->object;
             $customerId = $setupIntent->customer;
