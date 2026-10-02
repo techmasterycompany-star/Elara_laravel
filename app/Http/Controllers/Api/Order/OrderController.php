@@ -152,9 +152,7 @@ class OrderController extends Controller
     $shippingFee = self::SHIPPING_FEE;
     $total       = $subtotal - $discount + $shippingFee;
 
-    // فحص سريع بس (من غير lock ومن غير خصم) - يمنع إنشاء أوردر وحجز stock
-    // لعميل رصيده مش كافي أصلاً. الخصم الفعلي والتحقق النهائي (بـ lockForUpdate)
-    // بيحصلوا لاحقًا جوّه WalletGateway::charge() عن طريق PaymentService.
+  
     if ($validated['payment_method'] === 'wallet') {
         if (! $user) {
             abort(422, 'Wallet payment requires a logged-in account.');
@@ -222,7 +220,6 @@ return response()->json([
 ], 201);
     }
 
-    // ---- #25 Order Status & Tracking ----
 
     public function show(Request $request, Order $order)
 {
@@ -266,12 +263,10 @@ public function index(Request $request)
 
     $refundMessage = null;
 
-    // لو الأوردر كان مدفوع فعلًا، نحاول نرجع الفلوس الأول قبل ما نلغي أي حاجة
     if ($order->status === 'paid') {
         $refundResult = $this->paymentService->refund($order);
 
         if (! $refundResult->success) {
-            // ماوقفناش الإلغاء - بس بنبلّغ إن الرد المالي محتاج تدخل يدوي (زي حالة COD)
             $refundMessage = $refundResult->message;
         }
     }
@@ -282,7 +277,6 @@ public function index(Request $request)
             $item->update(['status' => 'cancelled']);
         }
 
-        // رجوع استخدام الكوبون - لو مبقاش أقل من صفر
         if ($order->coupon_id) {
             $order->coupon()->decrement('used_count');
         }
@@ -292,7 +286,7 @@ public function index(Request $request)
 
     return response()->json([
         'message'        => 'Order cancelled successfully.',
-        'refund_message' => $refundMessage, // null لو الرد نجح تلقائيًا أو الأوردر مكانش مدفوع أصلًا
+        'refund_message' => $refundMessage, 
     ]);
 }
 public function reorder(Request $request, Order $order)
@@ -370,8 +364,7 @@ $order = $item->order()->with('items')->first();
 $previousStatus = $order->computedStatus();
 
 $item->update(['status' => $validated['status']]);
-
-$order->load('items'); // نعيد تحميل الـ items عشان computedStatus() ياخد القيم الجديدة بعد التحديث
+$order->load('items'); 
 $newStatus = $order->computedStatus();
 
 if ($newStatus !== $previousStatus) {
@@ -386,12 +379,7 @@ return response()->json([
     'message' => 'Order item status updated.',
     'item'    => $item->fresh(),
 ]);
-
-        return response()->json([
-            'message' => 'Order item status updated.',
-            'item'    => $item->fresh(),
-        ]);
-    }
+}
 
     
 }
